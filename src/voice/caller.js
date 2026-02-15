@@ -56,23 +56,32 @@ class VoiceCaller {
       });
 
       if (this.whatsapp && this.whatsapp.isConnected && this.whatsapp.isConnected()) {
-        // Send as voice note
         const chatId = `${phone}@c.us`;
-        const fs = require('fs');
-        const audioBuffer = fs.readFileSync(audioResult.filePath);
-
-        // whatsapp-web.js sendMessage with media
         const { MessageMedia } = require('whatsapp-web.js');
-        const media = new MessageMedia('audio/ogg', audioBuffer.toString('base64'));
-        await this.whatsapp.sendMessage(chatId, media, { sendAudioAsVoice: true });
 
+        let media;
+        if (audioResult.cloudUrl) {
+          // Use Cloudinary URL — fetch to buffer for WhatsApp
+          const cloudRes = await fetch(audioResult.cloudUrl);
+          const audioBuffer = Buffer.from(await cloudRes.arrayBuffer());
+          media = new MessageMedia('audio/ogg', audioBuffer.toString('base64'));
+        } else {
+          // Use local file
+          const fs = require('fs');
+          const audioBuffer = fs.readFileSync(audioResult.filePath);
+          media = new MessageMedia('audio/ogg', audioBuffer.toString('base64'));
+        }
+
+        await this.whatsapp.sendMessage(chatId, media, { sendAudioAsVoice: true });
         this._log(phone, 'voice_message', 'sent', cleanText);
 
-        // Cleanup temp file (safety: moves to trash if protected)
-        const fileSafety = require('../utils/file-safety');
-        try { fileSafety.safeDelete(audioResult.filePath); } catch {}
+        // Cleanup local file if it still exists
+        if (audioResult.filePath) {
+          const fs = require('fs');
+          try { if (fs.existsSync(audioResult.filePath)) fs.unlinkSync(audioResult.filePath); } catch {}
+        }
 
-        return { success: true, type: 'voice_message', phone };
+        return { success: true, type: 'voice_message', phone, cloudUrl: audioResult.cloudUrl };
       }
 
       // Dev mode - just log
@@ -109,15 +118,16 @@ class VoiceCaller {
    * Auto-call customers with expiring rentals.
    */
   async callExpiringCustomer(agreement, daysLeft) {
-    const phone = agreement.customer_phone;
+    const phone = agreement.mobile;
     if (!phone) return;
 
+    const endDate = (agreement.date_end || '').slice(0, 10);
     const text = daysLeft <= 1
       ? `Hello ${agreement.customer_name}. This is JARVIS from JRV Car Rental. ` +
         `Your rental ends tomorrow. Please arrange to return the car or contact us to extend. ` +
         `Call us at plus 60 1 2 6 5 6 5 4 7 7. Thank you.`
       : `Hello ${agreement.customer_name}. This is JARVIS from JRV Car Rental. ` +
-        `Your rental ends in ${daysLeft} days on ${agreement.end_date}. ` +
+        `Your rental ends in ${daysLeft} days on ${endDate}. ` +
         `Would you like to extend? Please let us know. Thank you.`;
 
     return this.sendVoiceMessage(phone, text, 'en');

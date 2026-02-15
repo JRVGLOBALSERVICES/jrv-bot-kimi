@@ -638,6 +638,17 @@ class JarvisBrain {
             `/tool reminder-all     All reminders\n` +
             `/tool clear-reminders  Clear by phone\n` +
             `\`\`\`\n`;
+
+          response.text += `\n*Boss Media (Cloudinary):*\n\`\`\`\n` +
+            `/tool cloud            Storage stats\n` +
+            `/tool cloud-voice      List voice notes\n` +
+            `/tool cloud-images     List images\n` +
+            `/tool cloud-videos     List videos\n` +
+            `/tool cloud-delete <id> Delete media\n` +
+            `/tool generate-image   AI image\n` +
+            `/tool generate-video   Video tools\n` +
+            `/tool upload           Upload info\n` +
+            `\`\`\`\n`;
         }
 
         response.text += `\nOr just chat naturally in Malay, English, Chinese, or Tamil!`;

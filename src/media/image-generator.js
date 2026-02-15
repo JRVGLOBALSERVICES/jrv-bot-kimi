@@ -2,18 +2,16 @@ const config = require('../config');
 const fs = require('fs');
 const path = require('path');
 const fileSafety = require('../utils/file-safety');
+const cloudinary = require('./cloudinary');
 
 /**
  * Image Generator - Creates images from text prompts.
  *
  * Priority:
  * 1. Local Stable Diffusion (on Jetson via ComfyUI/A1111) — FREE but slower
- * 2. Cloud API (Flux, DALL-E 3, etc.) — fast, paid
+ * 2. Kimi K2 SVG generation — fallback
  *
- * Use cases for JRV:
- * - Generate promotional images
- * - Create visual quotes with car images
- * - Marketing material
+ * All generated images are uploaded to Cloudinary automatically.
  */
 class ImageGenerator {
   constructor() {
@@ -28,7 +26,7 @@ class ImageGenerator {
    * @param {number} options.width - Image width (default 512)
    * @param {number} options.height - Image height (default 512)
    * @param {number} options.steps - Inference steps (default 20)
-   * @returns {{ filePath: string, engine: string }}
+   * @returns {{ filePath: string, engine: string, cloudUrl?: string }}
    */
   async generate(prompt, options = {}) {
     const { width = 512, height = 512, steps = 20 } = options;
@@ -38,22 +36,37 @@ class ImageGenerator {
     }
 
     const outputPath = path.join(this.outputDir, `gen_${Date.now()}.png`);
+    let result;
 
     try {
-      return await this._localGenerate(prompt, outputPath, { width, height, steps });
+      result = await this._localGenerate(prompt, outputPath, { width, height, steps });
     } catch (localErr) {
       console.warn('[ImageGen] Local SD failed:', localErr.message);
       try {
-        return await this._cloudGenerate(prompt, outputPath, { width, height });
+        result = await this._cloudGenerate(prompt, outputPath, { width, height });
       } catch (cloudErr) {
         console.error('[ImageGen] All generators failed:', cloudErr.message);
         throw new Error('Image generation failed: no engines available');
       }
     }
+
+    // Upload to Cloudinary
+    if (cloudinary.isAvailable() && result.filePath) {
+      try {
+        const upload = await cloudinary.uploadImage(result.filePath, 'generated');
+        result.cloudUrl = upload.secureUrl;
+        result.publicId = upload.publicId;
+        console.log(`[ImageGen] Uploaded to Cloudinary: ${upload.secureUrl}`);
+        try { fs.unlinkSync(result.filePath); } catch {}
+      } catch (err) {
+        console.warn('[ImageGen] Cloudinary upload failed, keeping local:', err.message);
+      }
+    }
+
+    return result;
   }
 
   async _localGenerate(prompt, outputPath, { width, height, steps }) {
-    // Stable Diffusion API (AUTOMATIC1111 or ComfyUI)
     const response = await fetch(`${this.localUrl}/sdapi/v1/txt2img`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -80,8 +93,6 @@ class ImageGenerator {
   }
 
   async _cloudGenerate(prompt, outputPath, { width, height }) {
-    // Use Kimi K2 to generate HTML/SVG as an alternative
-    // Or integrate with a cloud image API here
     const kimiClient = require('../ai/kimi-client');
 
     const result = await kimiClient.ask(
@@ -89,7 +100,6 @@ class ImageGenerator {
       'You are a graphic designer. Create clean, professional SVG images.'
     );
 
-    // If we got SVG, save it
     const svgMatch = result.content.match(/<svg[\s\S]*<\/svg>/i);
     if (svgMatch) {
       const svgPath = outputPath.replace('.png', '.svg');
