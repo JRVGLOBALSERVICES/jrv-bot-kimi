@@ -1,5 +1,4 @@
 const config = require('../config');
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const jarvisVoice = require('./jarvis-voice');
@@ -11,7 +10,7 @@ const cloudinary = require('../media/cloudinary');
  *
  * Priority chain:
  * 1. Piper TTS (local on Jetson) — fast, offline, customizable
- * 2. Edge TTS (free Microsoft TTS) — Iron Man JARVIS voice (en-GB-RyanNeural)
+ * 2. msedge-tts (Node.js) — same Microsoft voices, NO Python needed
  *
  * Voice profiles defined in jarvis-voice.js:
  *   - jarvis: British male, slightly deep, calm (Iron Man style)
@@ -45,10 +44,10 @@ class TTSEngine {
     } catch (localErr) {
       console.warn('[TTS] Local Piper failed:', localErr.message);
       try {
-        result = await this._edgeTTS(text, outputPath, language, voiceSpeed);
+        result = await this._edgeTTSNode(text, outputPath, language, voiceSpeed);
       } catch (edgeErr) {
-        console.error('[TTS] All TTS engines failed:', edgeErr.message);
-        throw new Error('Text-to-speech failed: no engines available\nFix: pip install edge-tts');
+        console.error('[TTS] Edge TTS (Node) failed:', edgeErr.message);
+        throw new Error(`Text-to-speech failed: ${edgeErr.message}`);
       }
     }
 
@@ -91,106 +90,50 @@ class TTSEngine {
     };
   }
 
-  async _edgeTTS(text, outputPath, language, speed) {
+  /**
+   * Edge TTS via msedge-tts Node.js package.
+   * No Python needed — pure JavaScript, same Microsoft voices.
+   */
+  async _edgeTTSNode(text, outputPath, language, speed) {
+    const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
+
     const voice = jarvisVoice.getVoice(language);
     const pitch = jarvisVoice.getPitch();
-    const isWin = process.platform === 'win32';
 
-    // Write text to file to avoid all shell escaping issues
-    const textPath = path.join(this.outputDir, `tts_input_${Date.now()}.txt`);
-    fs.writeFileSync(textPath, text, 'utf8');
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
 
-    const pyPitch = pitch && pitch !== '0%' ? `, pitch="${pitch}"` : '';
-    const pyRate = speed !== 1.0 ? `, rate="${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%"` : '';
-    const pyScript = `
-import sys, asyncio, traceback
+    // Build rate string: e.g. "-5%" for speed 0.95
+    const rateStr = speed !== 1.0 ? `${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '+0%';
+    const pitchStr = pitch || '+0Hz';
 
-try:
-    import edge_tts
-except ImportError:
-    print("ERROR: edge_tts not installed. Run: pip install edge-tts", file=sys.stderr)
-    sys.exit(1)
+    console.log(`[TTS] Edge TTS (Node.js): voice=${voice} rate=${rateStr} pitch=${pitchStr}`);
 
-async def main():
-    with open(r"${textPath.replace(/\\/g, '\\\\')}", "r", encoding="utf-8") as f:
-        text = f.read()
-    communicate = edge_tts.Communicate(text, "${voice}"${pyRate}${pyPitch})
-    await communicate.save(r"${outputPath.replace(/\\/g, '\\\\')}")
-    print("OK")
+    const readable = tts.toStream(text, { rate: rateStr, pitch: pitchStr });
 
-try:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
-    loop.close()
-except Exception as e:
-    traceback.print_exc()
-    sys.exit(1)
-`.trim();
-    const pyPath = path.join(this.outputDir, `tts_${Date.now()}.py`);
-    fs.writeFileSync(pyPath, pyScript);
-
-    // Find Python: try multiple common paths
-    const pyCmds = isWin
-      ? ['python', 'python3', 'py', 'py -3']
-      : ['python3', 'python'];
-
-    let lastErr = null;
-    for (const pyCmd of pyCmds) {
-      try {
-        console.log(`[TTS] Running: ${pyCmd} "${pyPath}"`);
-        execSync(`${pyCmd} "${pyPath}"`, {
-          timeout: 30000,
-          stdio: 'pipe',
-          encoding: 'utf-8',
-          // Inherit full user PATH on Windows so PM2 can find Python
-          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-        });
-
-        // Clean up temp files
-        try { fs.unlinkSync(pyPath); } catch {}
-        try { fs.unlinkSync(textPath); } catch {}
-
-        // Verify output file exists
-        if (!fs.existsSync(outputPath)) {
-          throw new Error('Edge TTS produced no output file');
+    // Collect audio chunks and write to file
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      readable.on('data', (chunk) => {
+        // msedge-tts emits objects with 'audio' buffer property
+        if (chunk.audio) {
+          chunks.push(chunk.audio);
+        } else if (Buffer.isBuffer(chunk)) {
+          chunks.push(chunk);
         }
+      });
+      readable.on('end', resolve);
+      readable.on('error', reject);
+      // Timeout after 30 seconds
+      setTimeout(() => reject(new Error('Edge TTS timed out')), 30000);
+    });
 
-        const stats = fs.statSync(outputPath);
-        console.log(`[TTS] Generated ${stats.size} bytes with ${pyCmd}: ${outputPath}`);
-
-        return {
-          filePath: outputPath,
-          duration: this._estimateDuration(text, speed),
-          engine: 'edge-tts',
-          voice,
-        };
-      } catch (err) {
-        lastErr = err.stderr || err.message;
-        console.warn(`[TTS] ${pyCmd} failed: ${String(lastErr).slice(0, 200)}`);
-      }
+    if (chunks.length === 0) {
+      throw new Error('Edge TTS returned no audio data');
     }
 
-    // All Python commands failed — try edge-tts CLI as last resort
-    try {
-      const safeText = text.replace(/['"]/g, '').replace(/\n/g, ' ').replace(/[`$\\]/g, '');
-      const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
-      const pitchStr = pitch && pitch !== '0%' ? `--pitch=${pitch}` : '';
-      const cmd = `edge-tts --voice "${voice}" ${rateStr} ${pitchStr} --text "${safeText}" --write-media "${outputPath}"`.replace(/\s{2,}/g, ' ');
-      execSync(cmd, { timeout: 30000, stdio: 'pipe' });
-    } catch (cliErr) {
-      // Clean up
-      try { fs.unlinkSync(pyPath); } catch {}
-      try { fs.unlinkSync(textPath); } catch {}
-      throw new Error(`Edge TTS failed.\nPython: ${String(lastErr).slice(0, 200)}\nCLI: ${cliErr.message.slice(0, 200)}`);
-    }
-
-    try { fs.unlinkSync(pyPath); } catch {}
-    try { fs.unlinkSync(textPath); } catch {}
-
-    if (!fs.existsSync(outputPath)) {
-      throw new Error('Edge TTS produced no output file');
-    }
+    const audioBuffer = Buffer.concat(chunks);
+    fs.writeFileSync(outputPath, audioBuffer);
 
     const stats = fs.statSync(outputPath);
     console.log(`[TTS] Generated ${stats.size} bytes: ${outputPath}`);
@@ -198,7 +141,7 @@ except Exception as e:
     return {
       filePath: outputPath,
       duration: this._estimateDuration(text, speed),
-      engine: 'edge-tts',
+      engine: 'edge-tts-node',
       voice,
     };
   }
@@ -215,21 +158,9 @@ except Exception as e:
       if (res.ok) return true;
     } catch {}
 
-    // Check edge-tts Python module
-    const pyCmds = process.platform === 'win32'
-      ? ['python', 'python3', 'py']
-      : ['python3', 'python'];
-    for (const py of pyCmds) {
-      try {
-        execSync(`${py} -c "import edge_tts"`, { stdio: 'pipe', timeout: 5000 });
-        return true;
-      } catch {}
-    }
-
-    // Check edge-tts CLI
+    // msedge-tts is always available (npm package)
     try {
-      const findCmd = process.platform === 'win32' ? 'where' : 'which';
-      execSync(`${findCmd} edge-tts`, { stdio: 'pipe' });
+      require('msedge-tts');
       return true;
     } catch {}
 
