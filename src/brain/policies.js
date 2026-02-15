@@ -169,8 +169,8 @@ const OPERATIONAL_RULES = [
   'All prices MUST come from bot_data_store, never make up prices',
   'Car plates are HIDDEN from customers — show model names only',
   'Car plates are VISIBLE to admins only',
-  'Format: **bold headers** + ```monospace data blocks```',
-  'No corporate BS — get straight to data',
+  'Format: *bold headers* + ``` data blocks ```',
+  'Be concise. No corporate BS — get straight to data',
   'Match customer language (Malay/English/Chinese/Tamil)',
   'Customer with >5 bookings = regular customer, give priority treatment',
   'Always greet returning customers by name',
@@ -345,50 +345,28 @@ class Policies {
    * @param {boolean} isAdmin - If false, admin phones and sensitive data are stripped.
    */
   buildPolicyContext(isAdmin = false) {
+    // Keep compact — only essential data. Do NOT include operational rules
+    // (those are already in the router system prompt).
     const lines = [
-      '=== JRV BUSINESS POLICIES ===',
-      '',
-      '--- OPERATIONAL RULES ---',
-      ...this.rules.map((r, i) => `${i + 1}. ${r}`),
-      '',
-      '--- PRICING ---',
+      'PRICING:',
       ...Object.entries(this.pricing).map(([cat, p]) =>
-        `${cat}: RM${p.daily}/day, RM${p.threeDays}/3days, RM${p.weekly}/week, RM${p.monthly}/month`
+        `${cat}: RM${p.daily}/day, RM${p.weekly}/week, RM${p.monthly}/month`
       ),
       '',
-      '--- DELIVERY ---',
-      ...Object.values(this.deliveryZones).map(z =>
+      'DELIVERY: ' + Object.values(this.deliveryZones).map(z =>
         `${z.areas.join('/')}: ${z.fee === 0 ? 'FREE' : 'RM' + z.fee}`
-      ),
+      ).join(' | '),
       '',
-      `--- PAYMENT ---`,
-      `Methods: ${this.payment.methods.join(', ')}`,
-      `Bank: ${this.payment.bank.name} ${this.payment.bank.account} (${this.payment.bank.holder})`,
-      '',
-      `--- DEPOSIT ---`,
-      `${this.deposit.note}`,
-      '',
-      `--- CANCELLATION ---`,
-      `${this.cancellation.note}`,
-      '',
-      `--- EXTENSION ---`,
-      `${this.extension.note}`,
-      '',
-      `--- FUEL ---`,
-      `${this.fuel.note}`,
-      '',
-      `--- INSURANCE ---`,
-      `${this.insurance.note}`,
-      '',
-      `Business WhatsApp: +${this.admins.businessNumber}`,
+      `PAYMENT: ${this.payment.methods.join(', ')} | Bank: ${this.payment.bank.name} ${this.payment.bank.account}`,
+      `DEPOSIT: ${this.deposit.note}`,
+      `CANCELLATION: ${this.cancellation.note}`,
+      `EXTENSION: ${this.extension.note}`,
+      `FUEL: ${this.fuel.note}`,
+      `WhatsApp: +${this.admins.businessNumber}`,
     ];
 
-    // Only include admin details for admin users
     if (isAdmin) {
-      lines.push('');
-      lines.push('--- ADMINS ---');
-      lines.push(...this.admins.list.map(a => `${a.name} (${a.role}): ${a.phone}`));
-      lines.push(`Superadmin: ${this.admins.superadmin.name} ${this.admins.superadmin.phone}`);
+      lines.push(`ADMINS: ${this.admins.list.map(a => `${a.name}(${a.phone})`).join(', ')}`);
     }
 
     return lines.join('\n');

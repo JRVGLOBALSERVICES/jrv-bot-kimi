@@ -94,7 +94,9 @@ class TTSEngine {
   async _edgeTTS(text, outputPath, language, speed) {
     // Use JARVIS voice profile for voice selection
     const voice = jarvisVoice.getVoice(language);
+    const pitch = jarvisVoice.getPitch();
     const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
+    const pitchStr = pitch && pitch !== '0%' ? `--pitch=${pitch}` : '';
     const isWin = process.platform === 'win32';
     // Clean text for shell: remove quotes and newlines
     const safeText = text.replace(/['"]/g, '').replace(/\n/g, ' ').replace(/[`$\\]/g, '');
@@ -102,7 +104,7 @@ class TTSEngine {
     let cliError = null;
     try {
       // Try edge-tts CLI directly
-      const cmd = `edge-tts --voice "${voice}" ${rateStr} --text "${safeText}" --write-media "${outputPath}"`;
+      const cmd = `edge-tts --voice "${voice}" ${rateStr} ${pitchStr} --text "${safeText}" --write-media "${outputPath}"`.replace(/\s{2,}/g, ' ');
       console.log(`[TTS] Running: ${cmd.slice(0, 120)}...`);
       execSync(cmd, { timeout: 30000, stdio: 'pipe' });
     } catch (err) {

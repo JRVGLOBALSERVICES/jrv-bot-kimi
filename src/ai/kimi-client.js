@@ -56,6 +56,10 @@ class KimiClient {
     let lastError;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
+        // 30s timeout to prevent hanging
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+
         const response = await fetch(`${this.apiUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -63,7 +67,9 @@ class KimiClient {
             'Authorization': `Bearer ${this.apiKey}`,
           },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         if (response.status === 429) {
           const waitMs = RETRY_DELAYS[attempt] || 4000;
@@ -105,7 +111,7 @@ class KimiClient {
         lastError = err;
         this.stats.errors++;
 
-        if (attempt < MAX_RETRIES && (err.message.includes('429') || err.message.includes('ECONNRESET') || err.message.includes('fetch failed'))) {
+        if (attempt < MAX_RETRIES && (err.message.includes('429') || err.message.includes('ECONNRESET') || err.message.includes('fetch failed') || err.name === 'AbortError')) {
           const waitMs = RETRY_DELAYS[attempt] || 4000;
           console.warn(`[Kimi] Error: ${err.message}, retrying in ${waitMs}ms`);
           await new Promise(r => setTimeout(r, waitMs));

@@ -181,6 +181,29 @@ class JarvisBrain {
         return;
       }
 
+      // "Why slow" / speed questions — give real architecture info
+      if (/why.*(slow|delay|lag|tak\s*jawab|lambat)|so\s*slow|too\s*slow|speed|response\s*time|replies.*slow/i.test(body)) {
+        const stats = aiRouter.getStats();
+        const kimiStats = stats.kimiStats || {};
+        const cfg = require('../config');
+        response.text = `*Response Speed Analysis*\n\`\`\`\n` +
+          `Your message flow:\n` +
+          `1. WhatsApp → Bot (instant)\n` +
+          `2. Intent classification (instant)\n` +
+          `3. Kimi K2.5 API call (2-5s)\n` +
+          `4. Tool calls if needed (+2-3s each)\n` +
+          `5. Response → WhatsApp (instant)\n` +
+          `\n` +
+          `Current stats:\n` +
+          `Model: ${cfg.kimi.model}\n` +
+          `API calls: ${kimiStats.calls || 0}\n` +
+          `Tool calls: ${stats.toolCalls}\n` +
+          `Cache hits: ${stats.cacheHits}\n` +
+          `\`\`\`\n` +
+          `*Main bottleneck:* Kimi API latency (cloud). Simple greetings skip tools for faster response.`;
+        return;
+      }
+
       // "Send voice note" = generate voice message
       if (/send\s*(a\s*)?voice\s*(note|message|msg)|voice\s*note/i.test(body) && !/transcri/i.test(body)) {
         // Check if TTS is available first
@@ -195,7 +218,7 @@ class JarvisBrain {
           const fs = require('fs');
           if (voiceResult.filePath && fs.existsSync(voiceResult.filePath)) {
             response.voice = voiceResult.filePath;
-            response.text = '*Voice note sent.*';
+            // Voice only — no text message needed
           } else {
             response.text = '*Voice generation failed — file not created.*\n```\nTry: pip install edge-tts\n```';
           }
