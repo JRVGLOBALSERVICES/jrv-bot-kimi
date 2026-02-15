@@ -149,6 +149,7 @@
   <!-- Tabs -->
   <div class="tabs">
     <button class="tab active" onclick="switchTab('overview')">Overview</button>
+    <button class="tab" onclick="switchTab('messages')">Messages</button>
     <button class="tab" onclick="switchTab('fleet')">Fleet</button>
     <button class="tab" onclick="switchTab('bookings')">Bookings</button>
     <button class="tab" onclick="switchTab('customers')">Customers</button>
@@ -232,6 +233,32 @@
         <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Ends</th><th>Days Left</th></tr></thead>
         <tbody id="expiringTable"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ============ MESSAGES TAB ============ -->
+  <div class="tab-content" id="tab-messages">
+    <div class="search-row">
+      <input id="msgSearch" placeholder="Filter by phone or name..." onkeypress="if(event.key==='Enter')loadMessages()">
+      <select id="msgRole" style="padding:8px;background:var(--bg);color:var(--accent);border:1px solid var(--border);font-family:inherit;border-radius:4px;">
+        <option value="">All</option>
+        <option value="admin">Admin</option>
+        <option value="customer">Customer</option>
+      </select>
+      <button onclick="loadMessages()">Filter</button>
+      <button onclick="document.getElementById('msgSearch').value='';document.getElementById('msgRole').value='';loadMessages()" style="background:var(--card);color:var(--text);border:1px solid var(--border);">Reset</button>
+    </div>
+    <div class="card full">
+      <h2>Recent Messages <span id="msgCount" style="color:var(--accent)"></span></h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Time</th><th>Role</th><th>Name</th><th>Phone</th><th>Message</th><th>JARVIS Reply</th><th>Intent</th></tr></thead>
+          <tbody id="messagesTable"></tbody>
+        </table>
+      </div>
+      <div id="msgEmpty" style="display:none;color:var(--dim);padding:20px;text-align:center;">
+        No messages yet. Messages will appear here once the bot processes WhatsApp conversations.
+      </div>
     </div>
   </div>
 
@@ -413,6 +440,7 @@ function switchTab(tab) {
   document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
 
   // Lazy load tab data
+  if (tab === 'messages') loadMessages();
   if (tab === 'customers') searchCustomers();
   if (tab === 'pricing') loadPricing();
 }
@@ -625,6 +653,47 @@ async function loadActivityLog() {
       return `<div class="entry" style="color:${color}">[${ts}] <b>${label}</b>: ${detail}</div>`;
     }).join('');
   } catch (e) { /* silently ignore log failures */ }
+}
+
+// --- Messages ---
+async function loadMessages() {
+  try {
+    const search = document.getElementById('msgSearch').value.trim();
+    const role = document.getElementById('msgRole').value;
+    let params = '?limit=100';
+    if (search) params += '&phone=' + encodeURIComponent(search);
+    if (role) params += '&role=' + encodeURIComponent(role);
+
+    const d = await api('/messages' + params);
+    const msgs = d.messages || [];
+    document.getElementById('msgCount').textContent = '(' + msgs.length + ')';
+
+    if (msgs.length === 0) {
+      document.getElementById('messagesTable').innerHTML = '';
+      document.getElementById('msgEmpty').style.display = 'block';
+      return;
+    }
+
+    document.getElementById('msgEmpty').style.display = 'none';
+    document.getElementById('messagesTable').innerHTML = msgs.map(m => {
+      const ts = m.ts ? new Date(m.ts).toLocaleString() : '—';
+      const roleTag = m.role === 'admin'
+        ? '<span class="tag tag-blue">Admin</span>'
+        : '<span class="tag tag-green">Customer</span>';
+      const intentTag = m.intent ? `<span class="tag tag-yellow">${m.intent}</span>` : '';
+      const inText = (m.in || '').replace(/</g, '&lt;').slice(0, 120);
+      const outText = (m.out || '').replace(/</g, '&lt;').slice(0, 200);
+      return `<tr>
+        <td style="white-space:nowrap;font-size:11px;">${ts}</td>
+        <td>${roleTag}</td>
+        <td>${(m.name || '').replace(/</g, '&lt;')}</td>
+        <td style="font-size:11px;">${m.phone || '—'}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${inText}">${inText || '—'}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;color:var(--accent);" title="${outText}">${outText || '—'}</td>
+        <td>${intentTag}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { logAction('Messages load failed: ' + e.message, true); }
 }
 
 function fillSelect(id, options, selected) {

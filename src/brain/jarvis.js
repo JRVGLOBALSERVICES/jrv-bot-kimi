@@ -134,6 +134,9 @@ class JarvisBrain {
         : 'Maaf, ada masalah teknikal. Sila hubungi +60126565477.';
     }
 
+    // --- 6. Log message to Supabase for dashboard ---
+    this._logMessage(phone, name, body || `[${type}]`, response.text, classification, isAdmin).catch(() => {});
+
     return response;
   }
 
@@ -864,6 +867,46 @@ class JarvisBrain {
     parts.push(policies.buildPolicyContext(isAdmin));
 
     return parts.join('\n');
+  }
+
+  /**
+   * Log message interaction to Supabase for the dashboard.
+   * Stores last 200 messages in a rotating buffer in bot_data_store.
+   */
+  async _logMessage(phone, name, inbound, outbound, classification, isAdmin) {
+    try {
+      const supabase = require('../supabase/client');
+      const entry = {
+        ts: new Date().toISOString(),
+        phone,
+        name: name || phone,
+        role: isAdmin ? 'admin' : 'customer',
+        in: (inbound || '').slice(0, 500),
+        out: (outbound || '').slice(0, 500),
+        intent: classification?.intent || 'unknown',
+        priority: classification?.priority || 'LOW',
+      };
+
+      // Read existing log
+      const { data } = await supabase
+        .from('bot_data_store')
+        .select('value')
+        .eq('key', 'message_log')
+        .single();
+
+      const messages = Array.isArray(data?.value) ? data.value : [];
+      messages.unshift(entry); // newest first
+      if (messages.length > 200) messages.length = 200; // cap at 200
+
+      await supabase.from('bot_data_store').upsert({
+        key: 'message_log',
+        value: messages,
+        created_by: 'jarvis',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+    } catch (err) {
+      // Non-critical — don't crash for logging failure
+    }
   }
 }
 
