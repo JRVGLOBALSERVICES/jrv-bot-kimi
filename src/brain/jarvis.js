@@ -395,7 +395,7 @@ class JarvisBrain {
     } catch (err) {
       console.warn('[JARVIS] STT failed:', err.message);
       response.text = isAdmin
-        ? `*Voice transcription unavailable*\n\`\`\`\nSTT engine not running.\nInstall: pip install faster-whisper\nOr type your message instead.\n\`\`\``
+        ? `*Voice transcription failed*\n\`\`\`\n${err.message}\nFix: pip install faster-whisper\nOr set GROQ_API_KEY for cloud STT.\n\`\`\``
         : 'Maaf, saya tidak dapat mendengar mesej suara sekarang. Sila taip mesej anda. / Sorry, I can\'t process voice notes right now. Please type your message.';
       return;
     }
