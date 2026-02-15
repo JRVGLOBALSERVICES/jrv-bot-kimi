@@ -80,29 +80,36 @@ class TTSEngine {
     // Use JARVIS voice profile for voice selection
     const voice = jarvisVoice.getVoice(language);
     const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
+    const isWin = process.platform === 'win32';
+    const suppress = isWin ? ' 2>NUL' : ' 2>/dev/null';
+    const safeText = text.replace(/"/g, '\\"').replace(/\n/g, ' ');
 
     try {
       execSync(
-        `edge-tts --voice "${voice}" ${rateStr} --text "${text.replace(/"/g, '\\"')}" --write-media "${outputPath}" 2>/dev/null`,
-        { timeout: 30000 }
+        `edge-tts --voice "${voice}" ${rateStr} --text "${safeText}" --write-media "${outputPath}"${suppress}`,
+        { timeout: 30000, stdio: 'pipe' }
       );
     } catch {
       // Try Python edge-tts as fallback
+      const pyCmd = isWin ? 'python' : 'python3';
       const pyScript = `
 import edge_tts, asyncio
 async def main():
-    communicate = edge_tts.Communicate("${text.replace(/"/g, '\\"')}", "${voice}")
-    await communicate.save("${outputPath}")
+    communicate = edge_tts.Communicate("${safeText}", "${voice}")
+    await communicate.save(r"${outputPath}")
 asyncio.run(main())
       `.trim();
       const pyPath = path.join(this.outputDir, 'tts_temp.py');
       fs.writeFileSync(pyPath, pyScript);
-      execSync(`python3 "${pyPath}" 2>/dev/null`, { timeout: 30000 });
-      fs.unlinkSync(pyPath);
+      try {
+        execSync(`${pyCmd} "${pyPath}"`, { timeout: 30000, stdio: 'pipe' });
+      } finally {
+        if (fs.existsSync(pyPath)) fs.unlinkSync(pyPath);
+      }
     }
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Edge TTS produced no output');
+      throw new Error('Edge TTS produced no output. Install with: pip install edge-tts');
     }
 
     return {
@@ -124,10 +131,17 @@ asyncio.run(main())
       return res.ok;
     } catch {
       try {
-        execSync('which edge-tts 2>/dev/null || which python3 2>/dev/null');
+        const findCmd = process.platform === 'win32' ? 'where' : 'which';
+        execSync(`${findCmd} edge-tts`, { stdio: 'pipe' });
         return true;
       } catch {
-        return false;
+        try {
+          const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+          execSync(`${pyCmd} -c "import edge_tts"`, { stdio: 'pipe' });
+          return true;
+        } catch {
+          return false;
+        }
       }
     }
   }
