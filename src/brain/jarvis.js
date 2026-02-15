@@ -14,7 +14,7 @@ const adminTools = require('./admin-tools');
 const jarvisVoice = require('../voice/jarvis-voice');
 const locationService = require('../utils/location');
 const { agreementsService, fleetService, syncEngine } = require('../supabase/services');
-const { validateFleetStatus } = require('../utils/validators');
+const { validateFleetStatus, colorName } = require('../utils/validators');
 
 /**
  * JARVIS Brain - The central orchestrator.
@@ -828,7 +828,7 @@ class JarvisBrain {
       if (!isAdmin && avail.length > 0) {
         parts.push(`Available cars (NO PLATES to customer):`);
         for (const car of avail) {
-          parts.push(`  ${car._carName || car.body_type || ''} ${car.color || ''} - RM${car.daily_price}/day`);
+          parts.push(`  ${car._carName || car.body_type || ''} ${colorName(car.color)} - RM${car.daily_price}/day`);
         }
       }
     }

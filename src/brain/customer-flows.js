@@ -13,6 +13,7 @@
 
 const policies = require('./policies');
 const { formatMYT, daysBetween, todayMYT } = require('../utils/time');
+const { colorName } = require('../utils/validators');
 
 class CustomerFlows {
   /**
@@ -98,7 +99,7 @@ class CustomerFlows {
       for (const car of cars) {
         // NO PLATES for customers - model and color only
         text += `${car._carName || car.body_type || ''}`;
-        if (car.color) text += ` (${car.color})`;
+        if (car.color) text += ` (${colorName(car.color)})`;
         if (car.year) text += ` ${car.year}`;
         text += `\n`;
       }
@@ -127,7 +128,7 @@ class CustomerFlows {
     let text = `*Available Cars (${available.length})*\n\`\`\`\n`;
     for (const car of available) {
       text += `${car.plate_number} | ${car._carName || car.body_type || ''}`;
-      if (car.color) text += ` (${car.color})`;
+      if (car.color) text += ` (${colorName(car.color)})`;
       text += ` | RM${car.daily_price}/day\n`;
     }
     text += `\`\`\``;

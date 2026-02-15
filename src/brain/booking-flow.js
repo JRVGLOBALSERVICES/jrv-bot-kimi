@@ -16,7 +16,7 @@ const policies = require('./policies');
 const notifications = require('./notifications');
 const customerFlows = require('./customer-flows');
 const { syncEngine, agreementsService, fleetService } = require('../supabase/services');
-const { validateFleetStatus } = require('../utils/validators');
+const { validateFleetStatus, colorName } = require('../utils/validators');
 const { daysBetween, todayMYT } = require('../utils/time');
 
 const BOOKING_STATES = {
@@ -87,7 +87,7 @@ class BookingFlow {
       } else {
         text += `*${i + 1}.* ${car._carName || car.body_type || ''}`;
       }
-      if (car.color) text += ` (${car.color})`;
+      if (car.color) text += ` (${colorName(car.color)})`;
       text += ` — RM${rate}/day\n`;
     });
 
