@@ -1,7 +1,7 @@
 const fleetService = require('./fleet-service');
 const agreementsService = require('./agreements-service');
 const dataStoreService = require('./data-store-service');
-const { validateFleetStatus } = require('../../utils/validators');
+const { validateFleetStatus, getPlate } = require('../../utils/validators');
 const { formatMYT } = require('../../utils/time');
 
 /**
@@ -31,9 +31,11 @@ class SyncEngine {
 
   async sync() {
     try {
-      const [cars, catalog, agreements, customers, context, adminConfig] = await Promise.all([
+      // Load catalog first (for make/model enrichment)
+      await fleetService.loadCatalog();
+
+      const [cars, agreements, customers, context, adminConfig] = await Promise.all([
         fleetService.getAllCars(),
-        fleetService.getCatalog(),
         agreementsService.getActiveAgreements(),
         agreementsService.getUniqueCustomers(),
         dataStoreService.getFullContext(),
@@ -51,7 +53,7 @@ class SyncEngine {
       this.cache = {
         cars,
         validatedCars: validated,
-        catalog,
+        catalog: [],
         agreements,
         customers,
         pricing: context.pricing,
@@ -90,9 +92,6 @@ class SyncEngine {
     return this.cache;
   }
 
-  /**
-   * Get admin phones from bot_data_store.
-   */
   getAdminPhones() {
     const admins = this.cache.adminConfig || [];
     const phones = [];
@@ -109,13 +108,10 @@ class SyncEngine {
     return phones;
   }
 
-  /**
-   * Check if a phone number belongs to a known customer.
-   */
   lookupCustomer(phone) {
     const clean = phone.replace(/\D/g, '');
     for (const c of this.cache.customers) {
-      const cPhone = (c.customer_phone || '').replace(/\D/g, '');
+      const cPhone = (c.mobile || '').replace(/\D/g, '');
       if (cPhone && (cPhone.includes(clean) || clean.includes(cPhone))) {
         return c;
       }
@@ -123,9 +119,6 @@ class SyncEngine {
     return null;
   }
 
-  /**
-   * Check if phone is admin (from bot_data_store).
-   */
   isAdmin(phone) {
     const clean = phone.replace(/\D/g, '');
     return this.getAdminPhones().some(p => p.includes(clean) || clean.includes(p));
@@ -149,12 +142,12 @@ class SyncEngine {
       '',
       '--- Available Cars ---',
       ...available.map(car =>
-        `  ${car.car_plate} - ${car.make} ${car.model} ${car.year || ''} (${car.category}) RM${car.daily_rate}/day`
+        `  ${car.plate_number} - ${car._carName || car.body_type || ''} ${car.year || ''} RM${car.daily_price}/day`
       ),
       '',
       '--- Active Bookings ---',
       ...c.agreements.map(a =>
-        `  ${a.agreement_number || a.id}: ${a.customer_name} - ${a.car_plate} (${a.start_date} to ${a.end_date}) [${a.status}]`
+        `  ${a.customer_name} - ${a.plate_number} ${a.car_type || ''} (${(a.date_start || '').slice(0, 10)} to ${(a.date_end || '').slice(0, 10)}) [${a.status}]`
       ),
       '',
       '--- Pricing ---',

@@ -73,14 +73,14 @@ class BookingFlow {
 
     // Number each car for selection
     available.forEach((car, i) => {
-      const cat = car.category || 'economy';
+      const cat = car.body_type || 'economy';
       const pricing = policies.getCategoryPricing(cat);
-      const rate = pricing ? pricing.daily : car.daily_rate || 80;
+      const rate = pricing ? pricing.daily : car.daily_price || 80;
 
       if (isAdmin) {
-        text += `*${i + 1}.* ${car.car_plate} - ${car.make} ${car.model}`;
+        text += `*${i + 1}.* ${car.plate_number} - ${car._carName || car.body_type || ''}`;
       } else {
-        text += `*${i + 1}.* ${car.make} ${car.model}`;
+        text += `*${i + 1}.* ${car._carName || car.body_type || ''}`;
       }
       if (car.color) text += ` (${car.color})`;
       text += ` — RM${rate}/day\n`;
@@ -145,10 +145,10 @@ class BookingFlow {
     session.selectedCar = car;
     session.state = BOOKING_STATES.SELECTING_DATES;
 
-    const cat = car.category || 'economy';
+    const cat = car.body_type || 'economy';
     const pricing = policies.getCategoryPricing(cat);
 
-    let text2 = `*Selected: ${car.make} ${car.model}*\n`;
+    let text2 = `*Selected: ${car._carName || car.body_type || ''}*\n`;
     if (pricing) {
       text2 += `\`\`\`\n`;
       text2 += `Daily:   RM${pricing.daily}\n`;
@@ -180,9 +180,9 @@ class BookingFlow {
       return `End date must be after start date. Please try again.`;
     }
 
-    const cat = session.selectedCar.category || 'economy';
+    const cat = session.selectedCar.body_type || 'economy';
     const pricing = policies.getCategoryPricing(cat);
-    const dailyRate = pricing ? pricing.daily : session.selectedCar.daily_rate || 80;
+    const dailyRate = pricing ? pricing.daily : session.selectedCar.daily_price || 80;
 
     // Calculate best rate
     let total;
@@ -206,7 +206,7 @@ class BookingFlow {
     session.state = BOOKING_STATES.COLLECTING_INFO;
 
     let response = `*Booking Summary*\n\`\`\`\n`;
-    response += `Car: ${session.selectedCar.make} ${session.selectedCar.model}\n`;
+    response += `Car: ${session.selectedCar._carName || session.selectedCar.body_type || ''}\n`;
     response += `From: ${dates.start}\n`;
     response += `To:   ${dates.end}\n`;
     response += `Days: ${days}\n`;
@@ -237,7 +237,7 @@ class BookingFlow {
     let text = `*Final Confirmation*\n\`\`\`\n`;
     text += `Customer: ${session.customerName}\n`;
     text += `Phone: +${session.phone}\n`;
-    text += `Car: ${session.selectedCar.make} ${session.selectedCar.model}\n`;
+    text += `Car: ${session.selectedCar._carName || session.selectedCar.body_type || ''}\n`;
     text += `Period: ${session.startDate} → ${session.endDate}\n`;
     text += `Total: RM${session.totalAmount}\n`;
     text += `\`\`\`\n\n`;
@@ -255,17 +255,17 @@ class BookingFlow {
       // Notify admins
       const bookingData = {
         customer_name: session.customerName,
-        customer_phone: session.phone,
-        car_plate: session.selectedCar.car_plate,
-        car_description: `${session.selectedCar.make} ${session.selectedCar.model}`,
-        start_date: session.startDate,
-        end_date: session.endDate,
-        total_amount: session.totalAmount,
+        mobile: session.phone,
+        plate_number: session.selectedCar.plate_number,
+        car_type: session.selectedCar._carName || session.selectedCar.body_type || '',
+        date_start: session.startDate,
+        date_end: session.endDate,
+        total_price: session.totalAmount,
       };
       notifications.onNewBooking(bookingData).catch(() => {});
 
       let response = `*Booking Created!*\n\`\`\`\n`;
-      response += `${session.selectedCar.make} ${session.selectedCar.model}\n`;
+      response += `${session.selectedCar._carName || session.selectedCar.body_type || ''}\n`;
       response += `${session.startDate} → ${session.endDate}\n`;
       response += `Total: RM${session.totalAmount}\n`;
       response += `\`\`\`\n\n`;

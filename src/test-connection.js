@@ -5,7 +5,7 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { todayMYT, formatMYT, nowMYT } = require('./utils/time');
-const { validateFleetStatus, VALID_CAR_STATUSES, EXCLUDED_AGREEMENT_STATUS } = require('./utils/validators');
+const { validateFleetStatus, VALID_CAR_STATUSES, EXCLUDED_AGREEMENT_STATUSES } = require('./utils/validators');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -51,11 +51,12 @@ async function run() {
   const cars = await testTable('cars',
     supabase.from('cars').select('*').in('status', VALID_CAR_STATUSES));
 
-  // Fetch ALL agreements (no 1000-row cap)
+  // Fetch ALL agreements (no 1000-row cap), exclude Cancelled + Deleted
   let agreements = null;
   try {
     agreements = await fetchAllRows(
-      supabase.from('agreements').select('*').neq('status', EXCLUDED_AGREEMENT_STATUS)
+      supabase.from('agreements').select('*')
+        .not('status', 'in', `(${EXCLUDED_AGREEMENT_STATUSES.join(',')})`)
     );
     console.log(`  ✓ agreements: ${agreements.length} rows`);
   } catch (err) {
@@ -66,15 +67,30 @@ async function run() {
   const dataStore = await testTable('bot_data_store',
     supabase.from('bot_data_store').select('*'));
 
-  // ─── 2. Time validation ──────────────────────────────
-  console.log('\n2. Time validation...\n');
+  // ─── 2. Column diagnostics ─────────────────────────────
+  console.log('\n2. Column diagnostics...\n');
+  if (cars && cars.length > 0) {
+    const carCols = Object.keys(cars[0]);
+    console.log(`  Cars columns: ${carCols.join(', ')}`);
+    // Show sample car
+    const sample = cars[0];
+    const plate = sample.plate_number || sample.car_plate || '(no plate column found)';
+    console.log(`  Sample car: ${plate} | ${sample.make || sample.brand || '?'} ${sample.model || '?'} ${sample.year || ''} | status: ${sample.status}`);
+  }
+  if (agreements && agreements.length > 0) {
+    const agrCols = Object.keys(agreements[0]);
+    console.log(`  Agreements columns: ${agrCols.join(', ')}`);
+  }
+
+  // ─── 3. Time validation ──────────────────────────────
+  console.log('\n3. Time validation...\n');
   console.log(`  UTC now:     ${new Date().toISOString()}`);
   console.log(`  MYT now:     ${formatMYT(new Date(), 'datetime')}`);
   console.log(`  Today (MYT): ${todayMYT()}`);
 
-  // ─── 3. Cross-validate car status with agreements ────
+  // ─── 4. Cross-validate car status with agreements ────
   if (cars && agreements) {
-    console.log('\n3. Cross-validating car status with agreements...\n');
+    console.log('\n4. Cross-validating car status with agreements...\n');
 
     // Pass ALL agreements — validator filters to past month internally
     const { validated, mismatches } = validateFleetStatus(cars, agreements);
@@ -100,9 +116,9 @@ async function run() {
     }
   }
 
-  // ─── 4. Inspect bot_data_store ───────────────────────
+  // ─── 5. Inspect bot_data_store ───────────────────────
   if (dataStore && dataStore.length > 0) {
-    console.log('\n4. Inspecting bot_data_store...\n');
+    console.log('\n5. Inspecting bot_data_store...\n');
 
     // Show actual columns from first row
     const columns = Object.keys(dataStore[0]);
@@ -130,9 +146,9 @@ async function run() {
     }
   }
 
-  // ─── 5. Agreement status distribution ────────────────
+  // ─── 6. Agreement status distribution ────────────────
   if (agreements) {
-    console.log('\n5. Agreement status distribution...\n');
+    console.log('\n6. Agreement status distribution...\n');
 
     const statusCounts = {};
     agreements.forEach(a => {

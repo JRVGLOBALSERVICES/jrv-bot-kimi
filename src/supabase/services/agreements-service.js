@@ -1,22 +1,22 @@
 const supabase = require('../client');
 const { agreements } = require('../schemas');
 const { ACTIVE_STATUSES } = agreements;
-const { EXCLUDED_AGREEMENT_STATUS } = require('../../utils/validators');
+const { EXCLUDED_AGREEMENT_STATUSES } = require('../../utils/validators');
 const { todayMYT, daysFromNowMYT, formatMYT } = require('../../utils/time');
 
 /**
  * Agreements Service
- * All statuses are valid EXCEPT 'Deleted'.
- * All dates in DB are UTC — converted to MYT for queries and display.
+ * DB columns: plate_number, mobile, date_start, date_end, total_price, car_type
+ * Excludes Deleted + Cancelled by default.
  */
 class AgreementsService {
-  // ─── Base query (excludes Deleted) ───────────────────
+  // ─── Base query (excludes Deleted + Cancelled) ───────
 
   _baseQuery(fields = agreements.FIELDS.ALL) {
     return supabase
       .from(agreements.TABLE)
       .select(fields)
-      .neq('status', EXCLUDED_AGREEMENT_STATUS);
+      .not('status', 'in', `(${EXCLUDED_AGREEMENT_STATUSES.join(',')})`);
   }
 
   /**
@@ -41,7 +41,7 @@ class AgreementsService {
   async getActiveAgreements() {
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
       .in('status', ACTIVE_STATUSES)
-      .order('end_date');
+      .order('date_end');
     if (error) throw error;
     return data;
   }
@@ -57,8 +57,8 @@ class AgreementsService {
     const today = todayMYT();
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
       .in('status', ACTIVE_STATUSES)
-      .lt('end_date', today)
-      .order('end_date');
+      .lt('date_end', today)
+      .order('date_end');
     if (error) throw error;
     return data;
   }
@@ -69,9 +69,9 @@ class AgreementsService {
 
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
       .in('status', ACTIVE_STATUSES)
-      .gte('end_date', today)
-      .lte('end_date', cutoff)
-      .order('end_date');
+      .gte('date_end', today)
+      .lte('date_end', cutoff)
+      .order('date_end');
     if (error) throw error;
     return data;
   }
@@ -79,7 +79,7 @@ class AgreementsService {
   async getAgreementsByPhone(phone) {
     const clean = phone.replace(/\D/g, '');
     const { data, error } = await this._baseQuery()
-      .or(`customer_phone.ilike.%${clean}%,customer_phone.ilike.%${phone}%`)
+      .or(`mobile.ilike.%${clean}%,mobile.ilike.%${phone}%`)
       .order('created_at', { ascending: false });
     if (error) throw error;
     return data;
@@ -87,7 +87,7 @@ class AgreementsService {
 
   async getAgreementsByPlate(plate) {
     const { data, error } = await this._baseQuery()
-      .ilike('car_plate', plate)
+      .ilike('plate_number', plate)
       .order('created_at', { ascending: false });
     if (error) throw error;
     return data;
@@ -115,17 +115,15 @@ class AgreementsService {
     let query = this._baseQuery(agreements.FIELDS.FINANCIAL)
       .in('status', [...ACTIVE_STATUSES, agreements.STATUS.COMPLETED]);
 
-    if (startDate) query = query.gte('start_date', startDate);
-    if (endDate) query = query.lte('start_date', endDate);
+    if (startDate) query = query.gte('date_start', startDate);
+    if (endDate) query = query.lte('date_start', endDate);
 
     const { data, error } = await query;
     if (error) throw error;
 
-    const total = data.reduce((sum, a) => sum + (parseFloat(a.total_amount) || 0), 0);
-    const collected = data.filter(a => a.payment_status === 'paid')
-      .reduce((sum, a) => sum + (parseFloat(a.total_amount) || 0), 0);
-    const pending = data.filter(a => a.payment_status !== 'paid')
-      .reduce((sum, a) => sum + (parseFloat(a.total_amount) || 0), 0);
+    const total = data.reduce((sum, a) => sum + (parseFloat(a.total_price) || 0), 0);
+    const collected = data.reduce((sum, a) => sum + (parseFloat(a.paid) || 0), 0);
+    const pending = total - collected;
 
     return { total, collected, pending, count: data.length, agreements: data };
   }
@@ -137,7 +135,6 @@ class AgreementsService {
 
   async getMonthEarnings() {
     const now = new Date();
-    // Use MYT for month boundaries
     const year = now.getFullYear();
     const month = now.getMonth();
     const start = new Date(year, month, 1).toISOString().split('T')[0];
@@ -148,13 +145,10 @@ class AgreementsService {
   // ─── Status Updates ───────────────────────────────────
 
   async updateStatus(id, status) {
-    if (status === EXCLUDED_AGREEMENT_STATUS) {
-      throw new Error('Cannot set status to deleted via this method');
+    if (EXCLUDED_AGREEMENT_STATUSES.includes(status)) {
+      throw new Error('Cannot set status to deleted/cancelled via this method');
     }
     const updates = { status, updated_at: new Date().toISOString() };
-    if (status === agreements.STATUS.COMPLETED) {
-      updates.actual_return_date = todayMYT();
-    }
     const { data, error } = await supabase
       .from(agreements.TABLE)
       .update(updates)
@@ -169,14 +163,14 @@ class AgreementsService {
 
   async getUniqueCustomers() {
     const data = await this._fetchAll(
-      this._baseQuery('customer_name, customer_phone')
+      this._baseQuery('customer_name, mobile')
         .order('customer_name')
     );
 
     const seen = new Map();
     for (const row of data) {
-      if (row.customer_phone && !seen.has(row.customer_phone)) {
-        seen.set(row.customer_phone, row);
+      if (row.mobile && !seen.has(row.mobile)) {
+        seen.set(row.mobile, row);
       }
     }
     return Array.from(seen.values());
@@ -185,7 +179,7 @@ class AgreementsService {
   async getCustomerHistory(phone) {
     const clean = phone.replace(/\D/g, '');
     const { data, error } = await this._baseQuery()
-      .or(`customer_phone.ilike.%${clean}%,customer_phone.ilike.%${phone}%`)
+      .or(`mobile.ilike.%${clean}%,mobile.ilike.%${phone}%`)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -193,11 +187,11 @@ class AgreementsService {
 
     const totalSpent = data
       .filter(a => a.status !== agreements.STATUS.CANCELLED)
-      .reduce((sum, a) => sum + (parseFloat(a.total_amount) || 0), 0);
+      .reduce((sum, a) => sum + (parseFloat(a.total_price) || 0), 0);
 
     return {
       name: data[0].customer_name,
-      phone: data[0].customer_phone,
+      phone: data[0].mobile,
       totalRentals: data.length,
       totalSpent,
       activeRentals: data.filter(a => ACTIVE_STATUSES.includes(a.status)),
@@ -208,18 +202,18 @@ class AgreementsService {
 
   async getTopCustomers(limit = 10) {
     const data = await this._fetchAll(
-      this._baseQuery('customer_name, customer_phone, total_amount, status')
+      this._baseQuery('customer_name, mobile, total_price, status')
         .in('status', [...ACTIVE_STATUSES, agreements.STATUS.COMPLETED])
     );
 
     const map = new Map();
     for (const row of data) {
-      const key = row.customer_phone || row.customer_name;
+      const key = row.mobile || row.customer_name;
       if (!map.has(key)) {
-        map.set(key, { name: row.customer_name, phone: row.customer_phone, totalSpent: 0, rentals: 0 });
+        map.set(key, { name: row.customer_name, phone: row.mobile, totalSpent: 0, rentals: 0 });
       }
       const entry = map.get(key);
-      entry.totalSpent += parseFloat(row.total_amount) || 0;
+      entry.totalSpent += parseFloat(row.total_price) || 0;
       entry.rentals++;
     }
 
