@@ -1,6 +1,6 @@
 const aiRouter = require('../ai/router');
 const voiceEngine = require('../voice');
-const { imageReader } = require('../media');
+const { imageReader, cloudinary } = require('../media');
 const conversation = require('./conversation');
 const reports = require('./reports');
 const intentReader = require('./intent-reader');
@@ -12,6 +12,7 @@ const bookingFlow = require('./booking-flow');
 const reminders = require('./reminders');
 const adminTools = require('./admin-tools');
 const jarvisVoice = require('../voice/jarvis-voice');
+const locationService = require('../utils/location');
 const { agreementsService, fleetService, syncEngine } = require('../supabase/services');
 
 /**
@@ -98,9 +99,11 @@ class JarvisBrain {
 
       if (type === 'ptt' && media) {
         await this._handleVoice(msg, response, isAdmin, existingCustomer);
+      } else if ((type === 'location' || type === 'live_location') && msg.location) {
+        await this._handleLocation(msg, response, isAdmin, classification);
       } else if ((type === 'image' || type === 'sticker') && media) {
         await this._handleImage(msg, response, isAdmin, classification);
-      } else if (type === 'document' && media) {
+      } else if ((type === 'document' || type === 'video') && media) {
         await this._handleDocument(msg, response, isAdmin, classification);
       } else {
         await this._handleText(msg, response, isAdmin, isBoss, existingCustomer, customerHistory, classification);
@@ -237,11 +240,11 @@ class JarvisBrain {
 
       case INTENTS.DELIVERY: {
         const locMatch = body.match(/(?:to|ke|at|di|kat|dari)\s+(\w+(?:\s+\w+)?)/i);
-        const location = locMatch ? locMatch[1] : null;
-        const fee = location ? policies.getDeliveryFee(location) : null;
+        const loc = locMatch ? locMatch[1] : null;
+        const fee = loc ? policies.getDeliveryFee(loc) : null;
 
         if (fee) {
-          response.text = `*Delivery to ${location}*\n\`\`\`\nFee: ${fee.fee === 0 ? 'FREE' : 'RM' + fee.fee}\n\`\`\``;
+          response.text = `*Delivery to ${loc}*\n\`\`\`\nFee: ${fee.fee === 0 ? 'FREE' : 'RM' + fee.fee}\n\`\`\``;
         } else {
           response.text = `*Delivery Zones*\n\`\`\`\n`;
           for (const zone of Object.values(policies.deliveryZones)) {
@@ -249,6 +252,8 @@ class JarvisBrain {
           }
           response.text += `\`\`\``;
         }
+        response.text += `\n\nShare your location pin for exact delivery fee calculation.`;
+        response.text += `\nOur location: ${locationService.jrvLocation()}`;
         return true;
       }
 
@@ -334,6 +339,33 @@ class JarvisBrain {
     }
   }
 
+  // --- Location Handler ---
+
+  async _handleLocation(msg, response, isAdmin, classification) {
+    const { phone, name } = msg;
+    const { latitude: lat, longitude: lng } = msg.location;
+
+    if (!lat || !lng) {
+      response.text = '*Location*\n```Could not read location data. Please try sharing your location again.```';
+      return;
+    }
+
+    // Format location response with zone matching + maps links
+    response.text = await locationService.formatLocationResponse(lat, lng, name, isAdmin);
+
+    // Forward to admin with location details
+    if (!isAdmin) {
+      const [geo, zone] = await Promise.all([
+        locationService.reverseGeocode(lat, lng),
+        Promise.resolve(locationService.matchDeliveryZone(lat, lng)),
+      ]);
+
+      notifications.onLocationReceived(phone, name, lat, lng, zone, geo).catch(err =>
+        console.error('[JARVIS] Location notification failed:', err.message)
+      );
+    }
+  }
+
   // --- Image Handler ---
 
   async _handleImage(msg, response, isAdmin, classification) {
@@ -343,7 +375,9 @@ class JarvisBrain {
     const analysis = await imageReader.analyze(media.data, prompt);
     response.text = `*Image Analysis:*\n\`\`\`${analysis.description}\`\`\``;
 
-    if (/pay|bayar|receipt|resit|transfer|bukti/i.test(body || '') || /receipt|payment|transfer/i.test(analysis.description || '')) {
+    const isPayment = /pay|bayar|receipt|resit|transfer|bukti/i.test(body || '') || /receipt|payment|transfer/i.test(analysis.description || '');
+
+    if (isPayment) {
       response.text += `\n\n*Payment proof noted!* Our team will verify shortly.`;
       notifications.onPaymentProof(phone, msg.name, null).catch(() => {});
     }
@@ -366,16 +400,82 @@ class JarvisBrain {
         }
       }
     }
+
+    // Forward customer media to admin (upload to Cloudinary + notify)
+    if (!isAdmin && media) {
+      this._forwardMediaToAdmin(phone, msg.name, media, isPayment ? 'payment_proof' : 'image', body).catch(err =>
+        console.error('[JARVIS] Media forward failed:', err.message)
+      );
+    }
   }
 
-  // --- Document Handler ---
+  // --- Document/Video Handler ---
 
   async _handleDocument(msg, response, isAdmin, classification) {
-    response.text = `*Document Received*\n\`\`\`Thank you! Our team will review your document.\`\`\``;
+    const { phone, media, type } = msg;
+    const typeLabel = type === 'video' ? 'Video' : 'Document';
 
-    notifications.notifySuperadmin(
-      `*Document received from ${msg.name} (+${msg.phone})*\n\`\`\`Please review.\`\`\``
-    ).catch(() => {});
+    response.text = `*${typeLabel} Received*\n\`\`\`Thank you! Our team will review your ${typeLabel.toLowerCase()}.${type === 'video' ? '' : '\nPlease also check you have submitted all required documents.'}\`\`\``;
+
+    // Forward actual media to admin (not just notification text)
+    if (!isAdmin && media) {
+      this._forwardMediaToAdmin(phone, msg.name, media, type, msg.body).catch(err =>
+        console.error('[JARVIS] Media forward failed:', err.message)
+      );
+    } else {
+      notifications.notifySuperadmin(
+        `*${typeLabel} received from ${msg.name} (+${phone})*\n\`\`\`Please review.\`\`\``
+      ).catch(() => {});
+    }
+  }
+
+  // --- Media Forwarding ---
+
+  /**
+   * Upload customer media to Cloudinary and forward to admin.
+   * @param {string} phone - Customer phone
+   * @param {string} name - Customer name
+   * @param {object} media - { data: Buffer, mimetype, filename }
+   * @param {string} mediaType - 'image', 'document', 'video', 'payment_proof'
+   * @param {string} caption - Original message caption
+   */
+  async _forwardMediaToAdmin(phone, name, media, mediaType, caption = '') {
+    let cloudUrl = null;
+
+    // Upload to Cloudinary for permanent storage
+    if (cloudinary.isAvailable()) {
+      try {
+        const folder = mediaType === 'payment_proof' ? 'jrv/payments' : `jrv/customers/${phone}`;
+        const ext = (media.mimetype || '').split('/')[1] || 'bin';
+        const filename = media.filename || `${mediaType}_${Date.now()}.${ext}`;
+        const resourceType = mediaType === 'video' ? 'video' : /image|payment/.test(mediaType) ? 'image' : 'raw';
+
+        const upload = await cloudinary.uploadBuffer(media.data, filename, {
+          folder,
+          resourceType,
+          publicId: `${mediaType}_${phone}_${Date.now()}`,
+        });
+        cloudUrl = upload.secureUrl;
+        console.log(`[JARVIS] Customer media uploaded: ${cloudUrl}`);
+      } catch (err) {
+        console.warn('[JARVIS] Cloudinary upload for forwarding failed:', err.message);
+      }
+    }
+
+    // Notify admin with media context
+    const notifyText = `*Customer Media*\n` +
+      '```\n' +
+      `From: ${name} (+${phone})\n` +
+      `Type: ${mediaType}\n` +
+      `${caption ? `Caption: ${caption.slice(0, 150)}\n` : ''}` +
+      `${cloudUrl ? `Cloud: ${cloudUrl}\n` : ''}` +
+      '```';
+
+    // Forward: try sending actual media buffer, then fall back to text + URL
+    notifications.forwardMedia(phone, name, media, mediaType, caption, cloudUrl).catch(err => {
+      console.warn('[JARVIS] Media forward via notification failed:', err.message);
+      notifications.notifySuperadmin(notifyText).catch(() => {});
+    });
   }
 
   // --- Commands ---
@@ -648,6 +748,13 @@ class JarvisBrain {
             `/tool generate-image   AI image\n` +
             `/tool generate-video   Video tools\n` +
             `/tool upload           Upload info\n` +
+            `/tool customer-media   Customer files\n` +
+            `\`\`\`\n`;
+
+          response.text += `\n*Boss Location:*\n\`\`\`\n` +
+            `/tool location         JRV location info\n` +
+            `/tool location <lat> <lng>  Lookup coords\n` +
+            `/tool delivery <place>      Delivery fee calc\n` +
             `\`\`\`\n`;
         }
 

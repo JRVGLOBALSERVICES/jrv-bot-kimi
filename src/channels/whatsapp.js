@@ -6,8 +6,8 @@ const path = require('path');
 
 /**
  * WhatsApp Channel - Handles all WhatsApp messaging.
- * Receives: text, voice notes, images, documents
- * Sends: text, voice notes, images, documents
+ * Receives: text, voice notes, images, documents, locations
+ * Sends: text, voice notes, images, documents, locations, media from URLs
  */
 class WhatsAppChannel {
   constructor() {
@@ -77,7 +77,7 @@ class WhatsAppChannel {
       phone,
       name: contact.pushname || contact.name || phone,
       body: msg.body || '',
-      type: msg.type, // 'chat', 'ptt' (voice), 'image', 'document', 'video', 'sticker'
+      type: msg.type, // 'chat', 'ptt' (voice), 'image', 'document', 'video', 'sticker', 'location'
       isGroup,
       groupName: isGroup ? chat.name : null,
       isAdmin,
@@ -85,10 +85,22 @@ class WhatsAppChannel {
       timestamp: msg.timestamp,
       hasMedia: msg.hasMedia,
       media: null,
+      location: null,
       reply: async (text) => this.sendText(msg.from, text),
       replyWithVoice: async (audioPath) => this.sendVoice(msg.from, audioPath),
       replyWithImage: async (imagePath, caption) => this.sendImage(msg.from, imagePath, caption),
     };
+
+    // Parse location if present
+    if (msg.type === 'location' || msg.type === 'live_location') {
+      parsed.location = {
+        latitude: msg.location?.latitude || null,
+        longitude: msg.location?.longitude || null,
+        description: msg.location?.description || '',
+        name: msg.body || '',
+        address: msg.location?.address || '',
+      };
+    }
 
     // Download media if present
     if (msg.hasMedia) {
@@ -137,10 +149,74 @@ class WhatsAppChannel {
     });
   }
 
+  /**
+   * Send a location pin to a chat.
+   * @param {string} to - Chat ID
+   * @param {number} lat - Latitude
+   * @param {number} lng - Longitude
+   * @param {string} description - Location description
+   */
+  async sendLocation(to, lat, lng, description = '') {
+    if (!this.ready) throw new Error('WhatsApp not connected');
+    const Location = require('whatsapp-web.js').Location;
+    const loc = new Location(lat, lng, description);
+    await this.client.sendMessage(to, loc);
+  }
+
+  /**
+   * Send media from a URL (e.g., Cloudinary).
+   * Downloads the URL content and sends as WhatsApp media.
+   * @param {string} to - Chat ID
+   * @param {string} url - Media URL
+   * @param {string} caption - Optional caption
+   * @param {boolean} asDocument - Send as document instead of inline
+   */
+  async sendMediaFromUrl(to, url, caption = '', asDocument = false) {
+    if (!this.ready) throw new Error('WhatsApp not connected');
+    const media = await MessageMedia.fromUrl(url, { unsafeMime: true });
+    await this.client.sendMessage(to, media, {
+      caption,
+      sendMediaAsDocument: asDocument,
+    });
+  }
+
+  /**
+   * Send media from a Buffer directly.
+   * @param {string} to - Chat ID
+   * @param {Buffer} buffer - Media data
+   * @param {string} mimetype - MIME type (e.g., 'image/jpeg')
+   * @param {string} filename - Filename
+   * @param {string} caption - Optional caption
+   */
+  async sendMediaBuffer(to, buffer, mimetype, filename, caption = '') {
+    if (!this.ready) throw new Error('WhatsApp not connected');
+    const b64 = buffer.toString('base64');
+    const media = new MessageMedia(mimetype, b64, filename);
+    await this.client.sendMessage(to, media, { caption });
+  }
+
   async sendToAdmin(text) {
     if (config.admin.bossPhone) {
       await this.sendText(`${config.admin.bossPhone}@c.us`, text);
     }
+  }
+
+  /**
+   * Forward media buffer to superadmin.
+   * @param {Buffer} buffer - Media data
+   * @param {string} mimetype - MIME type
+   * @param {string} filename - Filename
+   * @param {string} caption - Caption with context
+   */
+  async forwardMediaToAdmin(buffer, mimetype, filename, caption = '') {
+    const superadminChatId = `${config.admin.adminPhones[0] || config.admin.bossPhone}@c.us`;
+    if (!this.ready) {
+      console.log(`[WhatsApp] Would forward media to admin: ${filename} - ${caption.slice(0, 100)}`);
+      return;
+    }
+    const b64 = buffer.toString('base64');
+    const media = new MessageMedia(mimetype, b64, filename);
+    await this.client.sendMessage(superadminChatId, media, { caption });
   }
 
   isConnected() {

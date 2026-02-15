@@ -125,6 +125,18 @@ class AdminTools {
       case 'upload':
         return this._uploadInfo();
 
+      // Location tools
+      case 'location':
+      case 'loc':
+        return this._locationInfo(args);
+
+      case 'delivery-calc':
+      case 'delivery':
+        return this._deliveryCalc(args);
+
+      case 'customer-media':
+        return this._customerMedia(args);
+
       case 'tools':
       case 'help':
         return this._toolsHelp();
@@ -722,6 +734,109 @@ Requirements:
     };
   }
 
+  // ─── Location & Delivery Commands ──────────────────
+
+  /**
+   * Location info — show JRV location, delivery zones, or lookup coordinates.
+   */
+  async _locationInfo(args) {
+    const locationService = require('../utils/location');
+
+    // If coordinates provided: /tool location 2.72 101.94
+    if (args.length >= 2) {
+      const lat = parseFloat(args[0]);
+      const lng = parseFloat(args[1]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const [geo, zone] = await Promise.all([
+          locationService.reverseGeocode(lat, lng),
+          Promise.resolve(locationService.matchDeliveryZone(lat, lng)),
+        ]);
+        return {
+          coordinates: { lat, lng },
+          address: geo.fullAddress || 'N/A',
+          area: geo.area || 'N/A',
+          zone: zone.zone,
+          fee: zone.fee === 0 ? 'FREE' : `RM${zone.fee}`,
+          distanceKm: zone.distanceKm,
+          mapsLink: locationService.mapsLink(lat, lng),
+          directionsToJrv: locationService.directionsToJrv(lat, lng),
+        };
+      }
+    }
+
+    // Default: show JRV location and zones
+    return {
+      jrvLocation: locationService.jrvLocation(),
+      deliveryZones: policies.deliveryZones,
+      usage: '/tool location <lat> <lng> — lookup any coordinate',
+    };
+  }
+
+  /**
+   * Calculate delivery fee for a location.
+   */
+  async _deliveryCalc(args) {
+    if (args.length === 0) {
+      return {
+        error: 'Usage: /tool delivery <location_name> OR /tool delivery <lat> <lng>',
+        zones: policies.deliveryZones,
+      };
+    }
+
+    // Check if coordinates
+    if (args.length >= 2) {
+      const lat = parseFloat(args[0]);
+      const lng = parseFloat(args[1]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const locationService = require('../utils/location');
+        const zone = locationService.matchDeliveryZone(lat, lng);
+        return {
+          coordinates: { lat, lng },
+          zone: zone.zone,
+          fee: zone.fee === 0 ? 'FREE' : `RM${zone.fee}`,
+          distanceKm: zone.distanceKm,
+          label: zone.label,
+        };
+      }
+    }
+
+    // Text-based lookup
+    const place = args.join(' ');
+    const fee = policies.getDeliveryFee(place);
+    if (fee) {
+      return { location: place, ...fee };
+    }
+    return { location: place, result: 'Unknown area. Use GPS coordinates for exact fee.' };
+  }
+
+  /**
+   * List customer media stored in Cloudinary.
+   */
+  async _customerMedia(args) {
+    if (!cloudinary.isAvailable()) return { error: 'Cloudinary not configured' };
+
+    const phone = args[0];
+    const folder = phone ? `jrv/customers/${phone}` : 'jrv/customers';
+
+    try {
+      const images = await cloudinary.listFolder(folder, 'image', 20);
+      const docs = await cloudinary.listFolder(folder, 'raw', 20);
+      return {
+        folder,
+        images: images.length,
+        documents: docs.length,
+        files: [...images, ...docs].map(f => ({
+          id: f.publicId,
+          url: f.url,
+          format: f.format,
+          created: f.createdAt,
+        })),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
   /**
    * Help text for admin tools.
    */
@@ -752,6 +867,9 @@ Requirements:
         '/tool generate-image <desc>': 'AI generate image',
         '/tool generate-video <type>': 'Video generation',
         '/tool upload': 'Upload/cloud info',
+        '/tool location [lat lng]': 'JRV location & zone lookup',
+        '/tool delivery <place|lat lng>': 'Calculate delivery fee',
+        '/tool customer-media [phone]': 'List customer uploaded media',
       },
       note: 'Boss-only commands. Access restricted to +60138606455.',
     };

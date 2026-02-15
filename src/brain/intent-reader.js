@@ -37,6 +37,7 @@ const INTENTS = {
   REPORT_REQUEST: 'report_request',
   DOCUMENT_SUBMIT: 'document_submit',
   MEDIA: 'media',
+  LOCATION: 'location',
   EMERGENCY: 'emergency',
   CANCELLATION: 'cancellation',
   DELIVERY: 'delivery',
@@ -197,6 +198,12 @@ class IntentReader {
     }
     if (type === 'document') {
       return { intent: INTENTS.DOCUMENT_SUBMIT, priority: PRIORITY.MEDIUM, confidence: 0.8, triggers: ['document'] };
+    }
+    if (type === 'video') {
+      return { intent: INTENTS.MEDIA, priority: PRIORITY.LOW, confidence: 1.0, triggers: ['video'] };
+    }
+    if (type === 'location' || type === 'live_location') {
+      return { intent: INTENTS.LOCATION, priority: PRIORITY.MEDIUM, confidence: 1.0, triggers: ['location'] };
     }
 
     if (!text) {
