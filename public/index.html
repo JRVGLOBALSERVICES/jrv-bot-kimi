@@ -196,15 +196,23 @@
     <!-- WhatsApp Status -->
     <div class="card full" style="margin-bottom: 12px;">
       <h2>WhatsApp Connection</h2>
-      <div class="grid" style="margin-bottom:0;">
-        <div>
+      <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
           <div class="row"><span class="label">Status</span><span id="waStatus">—</span></div>
           <div class="row"><span class="label">Last Change</span><span id="waTimestamp">—</span></div>
           <div class="row"><span class="label">Reason</span><span id="waReason">—</span></div>
+          <div style="margin-top:10px;">
+            <button class="btn-warning" onclick="forceRelink()" style="font-size:12px;">Force Re-link WhatsApp</button>
+            <div style="color:var(--dim);font-size:10px;margin-top:4px;">Disconnects and generates new QR code</div>
+          </div>
         </div>
-        <div id="waQrSection" style="display:none;">
-          <div style="color:var(--orange);font-size:11px;margin-bottom:4px;">QR Code available — scan with WhatsApp</div>
-          <div id="waQrCode" style="font-size:10px;color:var(--dim);word-break:break-all;max-height:60px;overflow:hidden;"></div>
+        <div id="waQrSection" style="display:none;text-align:center;">
+          <div style="color:var(--orange);font-size:12px;font-weight:bold;margin-bottom:8px;">Scan QR Code with WhatsApp</div>
+          <div style="background:#fff;padding:10px;border-radius:8px;display:inline-block;">
+            <img id="waQrImage" style="width:200px;height:200px;" alt="QR Code">
+          </div>
+          <div style="color:var(--dim);font-size:10px;margin-top:6px;">Open WhatsApp → Linked Devices → Link a Device</div>
+          <div style="color:var(--dim);font-size:10px;">QR refreshes every 60s. If expired, click Force Re-link.</div>
         </div>
       </div>
     </div>
@@ -358,6 +366,11 @@
         <button class="btn-success" onclick="sendCommand('resume')">Resume</button>
         <button onclick="sendCommand('restart')">Restart (PM2)</button>
         <button class="btn-danger" onclick="sendCommand('kill')">Kill</button>
+      </div>
+      <div class="control-group">
+        <label>WhatsApp:</label>
+        <button class="btn-warning" onclick="forceRelink()">Force Re-link</button>
+        <span style="color:var(--dim);font-size:11px;">Disconnect + new QR code (see Overview tab)</span>
       </div>
       <div class="control-group">
         <label>Kimi Model:</label>
@@ -579,11 +592,17 @@ async function loadStatus() {
     document.getElementById('waTimestamp').textContent = wa.timestamp ? new Date(wa.timestamp).toLocaleString() : '—';
     document.getElementById('waReason').textContent = wa.reason || '—';
 
-    // QR code section
+    // QR code section — render as scannable image
     const qrSection = document.getElementById('waQrSection');
     if (wa.status === 'waiting_for_qr' && wa.qr) {
       qrSection.style.display = 'block';
-      document.getElementById('waQrCode').textContent = wa.qr;
+      const qrImg = document.getElementById('waQrImage');
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(wa.qr);
+      if (qrImg.src !== qrUrl) qrImg.src = qrUrl;
+    } else if (wa.status === 'relinking') {
+      qrSection.style.display = 'block';
+      document.getElementById('waQrImage').src = '';
+      waEl.innerHTML = '<span style="color:var(--orange)">RE-LINKING...</span>';
     } else {
       qrSection.style.display = 'none';
     }
@@ -733,6 +752,19 @@ async function sendCommand(cmd) {
       setTimeout(loadStatus, 2000);
     }
   } catch (e) { logAction('Command failed: ' + e.message, true); }
+}
+
+async function forceRelink() {
+  if (!confirm('Force re-link WhatsApp?\n\nThis will:\n1. Disconnect the current WhatsApp session\n2. Delete the stored session\n3. Generate a new QR code\n\nYou will need to scan the QR code from this dashboard.\n\nContinue?')) return;
+
+  try {
+    const r = await api('/control', { method: 'POST', body: { command: 'relink' } });
+    if (r.error) throw new Error(r.error);
+    logAction('Re-link command sent. QR code will appear shortly...');
+    // Poll status more frequently to catch the QR code
+    const pollQr = setInterval(async () => { await loadStatus(); }, 5000);
+    setTimeout(() => clearInterval(pollQr), 120000); // stop after 2 min
+  } catch (e) { logAction('Re-link failed: ' + e.message, true); }
 }
 
 // --- Reports ---
