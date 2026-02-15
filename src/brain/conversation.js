@@ -1,13 +1,12 @@
 /**
  * Conversation Manager - Tracks conversation state per user.
- * Stores message history, context, and preferences.
+ * Supports multi-language detection: Malay, English, Chinese, Tamil.
  */
 class ConversationManager {
   constructor() {
-    // Map of phone → conversation state
     this.conversations = new Map();
-    this.maxHistory = 20; // Keep last 20 messages per user
-    this.ttl = 30 * 60 * 1000; // 30 minutes conversation timeout
+    this.maxHistory = 20;
+    this.ttl = 30 * 60 * 1000; // 30 minutes
   }
 
   getOrCreate(phone) {
@@ -16,7 +15,7 @@ class ConversationManager {
         phone,
         messages: [],
         context: {},
-        language: null, // Auto-detect
+        language: null,
         lastActivity: Date.now(),
         intent: null,
         awaitingResponse: null,
@@ -37,14 +36,14 @@ class ConversationManager {
       ...metadata,
     });
 
-    // Trim old messages
     if (conv.messages.length > this.maxHistory) {
       conv.messages = conv.messages.slice(-this.maxHistory);
     }
 
     // Detect language from user messages
-    if (role === 'user' && !conv.language) {
-      conv.language = this._detectLanguage(content);
+    if (role === 'user' && content) {
+      const detected = this._detectLanguage(content);
+      if (detected) conv.language = detected;
     }
   }
 
@@ -78,7 +77,6 @@ class ConversationManager {
     this.conversations.delete(phone);
   }
 
-  // Clean up expired conversations
   cleanup() {
     const now = Date.now();
     for (const [phone, conv] of this.conversations) {
@@ -88,12 +86,41 @@ class ConversationManager {
     }
   }
 
+  /**
+   * Multi-language detection: Malay, English, Chinese (Simplified), Tamil.
+   * Returns: 'ms' | 'en' | 'zh' | 'ta' | null
+   */
   _detectLanguage(text) {
-    // Simple heuristic: Malay if common Malay words present
-    const malayWords = ['saya', 'nak', 'boleh', 'ada', 'kereta', 'berapa', 'hari', 'untuk', 'harga', 'terima kasih', 'minta', 'tolong'];
+    if (!text) return null;
     const lower = text.toLowerCase();
-    const malayCount = malayWords.filter(w => lower.includes(w)).length;
-    return malayCount >= 2 ? 'ms' : 'en';
+
+    // Chinese detection: presence of CJK characters
+    if (/[\u4e00-\u9fff]/.test(text)) return 'zh';
+
+    // Tamil detection: presence of Tamil script
+    if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
+
+    // Malay keywords
+    const malayWords = [
+      'saya', 'nak', 'boleh', 'ada', 'kereta', 'berapa', 'hari',
+      'untuk', 'harga', 'terima kasih', 'minta', 'tolong', 'sewa',
+      'bayar', 'pulang', 'ambil', 'hantar', 'sambung', 'batal',
+      'sila', 'encik', 'puan', 'cik', 'dah', 'sudah', 'tak',
+      'macam mana', 'bila', 'mana', 'ini', 'itu', 'selamat',
+      'pagi', 'petang', 'malam', 'baik', 'okey', 'bolehkah',
+      'percuma', 'deposit', 'tunai', 'akaun', 'resit', 'lesen',
+    ];
+
+    const malayCount = malayWords.filter(w => {
+      if (w.length <= 3) {
+        return new RegExp(`\\b${w}\\b`, 'i').test(lower);
+      }
+      return lower.includes(w);
+    }).length;
+
+    if (malayCount >= 2) return 'ms';
+
+    return 'en';
   }
 
   getStats() {
@@ -103,6 +130,7 @@ class ConversationManager {
         phone,
         messages: conv.messages.length,
         language: conv.language,
+        intent: conv.intent,
         lastActivity: new Date(conv.lastActivity).toISOString(),
       })),
     };

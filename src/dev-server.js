@@ -11,6 +11,8 @@ const { syncEngine } = require('./supabase/services');
 const aiRouter = require('./ai/router');
 const jarvis = require('./brain/jarvis');
 const reports = require('./brain/reports');
+const policies = require('./brain/policies');
+const notifications = require('./brain/notifications');
 
 const app = express();
 app.use(express.json());
@@ -60,6 +62,37 @@ app.get('/api/report/earnings', async (req, res) => {
   res.json({ text: report });
 });
 
+// New report endpoints (6 formats from bot_data_store)
+app.get('/api/report/sorted-time', async (req, res) => {
+  const report = await reports.sortedByTime();
+  res.json({ text: report });
+});
+
+app.get('/api/report/sorted-contact', async (req, res) => {
+  const report = await reports.sortedByContact();
+  res.json({ text: report });
+});
+
+app.get('/api/report/sorted-timeslot', async (req, res) => {
+  const report = await reports.sortedByTimeslot();
+  res.json({ text: report });
+});
+
+app.get('/api/report/followup', async (req, res) => {
+  const report = await reports.followUpReport();
+  res.json({ text: report });
+});
+
+app.get('/api/report/available', async (req, res) => {
+  const report = await reports.availableReport();
+  res.json({ text: report });
+});
+
+app.get('/api/report/summary', async (req, res) => {
+  const report = await reports.summaryReport();
+  res.json({ text: report });
+});
+
 // ─── Data endpoints ──────────────────────────────────
 
 app.get('/api/cache', (req, res) => {
@@ -85,6 +118,14 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
+app.get('/api/pricing', (req, res) => {
+  res.json(policies.pricing);
+});
+
+app.get('/api/admins', (req, res) => {
+  res.json(policies.admins);
+});
+
 // ─── Dev Web UI ──────────────────────────────────────
 
 app.get('/', (req, res) => {
@@ -96,7 +137,7 @@ app.get('/', (req, res) => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Courier New', monospace; background: #0a0a0a; color: #00ff41; padding: 20px; }
     h1 { color: #00ff41; margin-bottom: 20px; }
-    .container { max-width: 800px; margin: 0 auto; }
+    .container { max-width: 900px; margin: 0 auto; }
     #chat { height: 500px; overflow-y: auto; border: 1px solid #00ff41; padding: 15px; margin-bottom: 15px; background: #0d0d0d; }
     .msg { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
     .msg.user { color: #00bfff; border-left: 3px solid #00bfff; padding-left: 10px; }
@@ -111,20 +152,38 @@ app.get('/', (req, res) => {
     .controls button:hover { background: #00ff41; color: #0a0a0a; }
     .meta { color: #555; font-size: 11px; }
     pre { white-space: pre-wrap; }
+    .phone-row { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+    .phone-row input { max-width: 200px; }
+    .phone-row label { font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>// JARVIS Dev Console</h1>
+    <div class="phone-row">
+      <label>Phone:</label>
+      <input id="phone" value="60123456789" placeholder="+60...">
+      <label>Name:</label>
+      <input id="userName" value="Dev User" placeholder="Name">
+      <label><input type="checkbox" id="adminMode" checked> Admin</label>
+    </div>
     <div class="controls">
       <button onclick="send('/help')">Help</button>
       <button onclick="send('/cars')">Fleet</button>
+      <button onclick="send('/available')">Available</button>
       <button onclick="send('/bookings')">Bookings</button>
-      <button onclick="send('/report')">Report</button>
+      <button onclick="send('/pricing')">Pricing</button>
+      <button onclick="send('/report')">Summary</button>
+      <button onclick="send('/report1')">By Time</button>
+      <button onclick="send('/report2')">By Contact</button>
+      <button onclick="send('/report3')">Timeslots</button>
+      <button onclick="send('/report4')">Follow-up</button>
+      <button onclick="send('/report5')">Available</button>
+      <button onclick="send('/report6')">Full Summary</button>
       <button onclick="send('/earnings')">Earnings</button>
-      <button onclick="send('/fleet-report')">Fleet Report</button>
+      <button onclick="send('/expiring')">Expiring</button>
+      <button onclick="send('/overdue')">Overdue</button>
       <button onclick="send('/status')">Status</button>
-      <label><input type="checkbox" id="adminMode" checked> Admin Mode</label>
     </div>
     <div id="chat"></div>
     <div class="input-row">
@@ -155,21 +214,22 @@ app.get('/', (req, res) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            phone: '60123456789',
+            phone: document.getElementById('phone').value,
             message: text,
-            name: 'Dev User',
+            name: document.getElementById('userName').value,
             isAdmin: document.getElementById('adminMode').checked,
           }),
         });
         const data = await res.json();
         if (data.text) addMsg('JARVIS: ' + data.text, 'bot');
-        if (data.tier) addMsg('[tier: ' + data.tier + ']', 'system');
+        if (data.intent) addMsg('[intent: ' + data.intent + (data.tier ? ' | tier: ' + data.tier : '') + ']', 'system');
       } catch (err) {
         addMsg('Error: ' + err.message, 'system');
       }
     }
 
     addMsg('JARVIS Dev Console ready. Type a message or use the buttons above.', 'system');
+    addMsg('Tip: Uncheck "Admin" to test customer view (no plates, no admin data).', 'system');
   </script>
 </body>
 </html>`);
@@ -187,10 +247,15 @@ async function start() {
   // Init AI
   await aiRouter.init();
 
+  // Init notifications (no WhatsApp in dev mode - logs to console)
+  notifications.init(null);
+  console.log('[Dev Server] Notifications: console-only mode (no WhatsApp)');
+
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     console.log(`[Dev Server] JARVIS running at http://localhost:${PORT}`);
     console.log('[Dev Server] Open in browser to test chat');
+    console.log('[Dev Server] Admin phone numbers:', policies.admins.list.map(a => `${a.name}(${a.phone})`).join(', '));
   });
 }
 
