@@ -15,6 +15,8 @@ class WhatsAppChannel {
     this.ready = false;
     this.onMessage = null; // Callback: (msg) => {}
     this.onReady = null;
+    // LID → phone mapping cache (WhatsApp LIDs are opaque identifiers)
+    this._lidCache = new Map();
   }
 
   async init(onMessage) {
@@ -70,9 +72,77 @@ class WhatsAppChannel {
   async _parseMessage(msg) {
     const contact = await msg.getContact();
     const chat = await msg.getChat();
-    const phone = msg.from.replace('@c.us', '').replace('@g.us', '');
     const isGroup = msg.from.endsWith('@g.us');
-    const isAdmin = config.admin.adminPhones.includes(phone) || phone === config.admin.bossPhone;
+
+    // Extract real phone number — handle LID format (@lid) used by newer WhatsApp.
+    // LIDs are opaque identifiers that DON'T correspond to phone numbers.
+    // We must resolve the real phone from contact properties.
+    const isLid = msg.from.endsWith('@lid');
+    const lidId = isLid ? msg.from.replace('@lid', '') : null;
+    let phone = msg.from.replace('@c.us', '').replace('@g.us', '').replace('@lid', '');
+
+    if (isLid) {
+      let resolved = false;
+
+      // 1. Check LID cache first
+      if (this._lidCache.has(lidId)) {
+        phone = this._lidCache.get(lidId);
+        resolved = true;
+      }
+
+      // 2. Try contact.number (whatsapp-web.js userid field)
+      if (!resolved && contact.number) {
+        phone = contact.number.replace(/\D/g, '');
+        this._lidCache.set(lidId, phone);
+        resolved = true;
+        console.log(`[WhatsApp] LID resolved via contact.number: ${lidId} → ${phone}`);
+      }
+
+      // 3. Try contact.id.user
+      if (!resolved && contact.id?.user && !contact.id.user.includes('@')) {
+        const idUser = contact.id.user.replace(/\D/g, '');
+        // Only use if it looks like a phone number (starts with country code)
+        if (idUser.length >= 10 && /^[1-9]/.test(idUser)) {
+          phone = idUser;
+          this._lidCache.set(lidId, phone);
+          resolved = true;
+          console.log(`[WhatsApp] LID resolved via contact.id.user: ${lidId} → ${phone}`);
+        }
+      }
+
+      // 4. Try getNumberId() API call
+      if (!resolved) {
+        try {
+          const numberId = await this.client.getNumberId(contact.id._serialized);
+          if (numberId?.user) {
+            phone = numberId.user.replace(/\D/g, '');
+            this._lidCache.set(lidId, phone);
+            resolved = true;
+            console.log(`[WhatsApp] LID resolved via getNumberId: ${lidId} → ${phone}`);
+          }
+        } catch (e) {
+          // getNumberId may not work for all contacts
+        }
+      }
+
+      if (!resolved) {
+        console.warn(`[WhatsApp] Could not resolve LID ${lidId} to phone number. Admin detection may fail.`);
+      }
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    const bossPhone = (config.admin.bossPhone || '').replace(/\D/g, '');
+
+    const isAdmin = config.admin.adminPhones.some(p => {
+      const cp = p.replace(/\D/g, '');
+      return cp && cleanPhone && (cp.includes(cleanPhone) || cleanPhone.includes(cp));
+    }) || (bossPhone && cleanPhone && (bossPhone.includes(cleanPhone) || cleanPhone.includes(bossPhone)));
+
+    const isBoss = bossPhone && cleanPhone && (bossPhone === cleanPhone || bossPhone.includes(cleanPhone) || cleanPhone.includes(bossPhone));
+
+    if (isLid) {
+      console.log(`[WhatsApp] Phone: ${phone}, isAdmin: ${isAdmin}, isBoss: ${isBoss}, LID: ${lidId}`);
+    }
 
     const parsed = {
       id: msg.id._serialized,
@@ -84,7 +154,7 @@ class WhatsAppChannel {
       isGroup,
       groupName: isGroup ? chat.name : null,
       isAdmin,
-      isBoss: phone === config.admin.bossPhone,
+      isBoss,
       timestamp: msg.timestamp,
       hasMedia: msg.hasMedia,
       media: null,
