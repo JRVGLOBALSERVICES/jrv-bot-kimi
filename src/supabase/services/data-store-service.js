@@ -20,7 +20,6 @@ class DataStoreService {
       .select(dataStore.FIELDS.CONFIG)
       .eq('category', category)
       .eq('key', key)
-      .eq('is_active', true)
       .single();
     if (error && error.code !== 'PGRST116') throw error;
     return data ? data.value : null;
@@ -39,7 +38,7 @@ class DataStoreService {
     } else {
       const { error } = await supabase
         .from(dataStore.TABLE)
-        .insert({ category, key, value, description, is_active: true });
+        .insert({ category, key, value, description });
       if (error) throw error;
     }
   }
@@ -87,7 +86,6 @@ class DataStoreService {
         category: dataStore.CATEGORIES.LOGS,
         key,
         value,
-        is_active: true,
       });
     if (error) throw error;
   }

@@ -1,5 +1,5 @@
 const supabase = require('../client');
-const { cars, catalog } = require('../schemas');
+const { cars } = require('../schemas');
 const { filterValidCars, VALID_CAR_STATUSES } = require('../../utils/validators');
 const { daysFromNowMYT } = require('../../utils/time');
 
@@ -122,26 +122,14 @@ class FleetService {
     };
   }
 
-  // ─── Catalog Queries ──────────────────────────────────
+  // ─── Catalog Queries (uses cars table — no separate catalog table) ──
 
   async getCatalog() {
-    const { data, error } = await supabase
-      .from(catalog.TABLE)
-      .select(catalog.FIELDS.ALL)
-      .eq('is_active', true)
-      .order('make');
-    if (error) throw error;
-    return data;
+    return this.getAllCars();
   }
 
   async getCatalogByCategory(category) {
-    const { data, error } = await supabase
-      .from(catalog.TABLE)
-      .select(catalog.FIELDS.LIST)
-      .eq('category', category)
-      .eq('is_active', true);
-    if (error) throw error;
-    return data;
+    return this.getCarsByCategory(category);
   }
 }
 

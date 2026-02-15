@@ -44,12 +44,14 @@ class STTEngine {
     const wavPath = audioPath.replace(/\.[^.]+$/, '.wav');
     if (audioPath !== wavPath) {
       try {
-        execSync(`ffmpeg -i "${audioPath}" -ar 16000 -ac 1 -f wav "${wavPath}" -y 2>/dev/null`);
+        const suppress = process.platform === 'win32' ? ' 2>NUL' : ' 2>/dev/null';
+        execSync(`ffmpeg -i "${audioPath}" -ar 16000 -ac 1 -f wav "${wavPath}" -y${suppress}`, { stdio: 'pipe' });
         if (cleanup) fs.unlinkSync(audioPath);
         audioPath = wavPath;
         cleanup = true;
       } catch {
         // If ffmpeg fails, try with original format
+        console.warn('[STT] ffmpeg not available — using original audio format');
       }
     }
 
@@ -102,9 +104,12 @@ class STTEngine {
 
   async _kimiTranscribe(audioPath, language) {
     // Kimi K2 doesn't have a native audio endpoint yet.
-    // This is a placeholder for when they add it, or we can use
-    // a cloud Whisper API (e.g., Groq Whisper, OpenAI Whisper API).
-    throw new Error('Cloud transcription not configured');
+    // Could integrate Groq Whisper (free) or OpenAI Whisper API.
+    throw new Error(
+      'Cloud transcription not configured. ' +
+      'Voice notes require a local Whisper server at ' + this.whisperUrl + '. ' +
+      'Install: pip install faster-whisper, then run a compatible server.'
+    );
   }
 
   async isAvailable() {

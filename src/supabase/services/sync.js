@@ -45,7 +45,7 @@ class SyncEngine {
 
       if (mismatches.length > 0) {
         console.warn(`[Sync] ⚠ ${mismatches.length} status mismatches detected:`);
-        mismatches.forEach(m => console.warn(`  ${m.plate}: ${m.dbStatus} → ${m.actualStatus} (${m.reason})`));
+        mismatches.forEach(m => console.warn(`  ${m.plate || m.carLabel}: ${m.dbStatus} → ${m.actualStatus} (${m.reason})`));
       }
 
       this.cache = {
@@ -169,7 +169,7 @@ class SyncEngine {
 
     if (c.mismatches.length > 0) {
       lines.push('', '--- STATUS MISMATCHES (need attention) ---');
-      c.mismatches.forEach(m => lines.push(`  ⚠ ${m.plate}: DB="${m.dbStatus}" actual="${m.actualStatus}" — ${m.reason}`));
+      c.mismatches.forEach(m => lines.push(`  ⚠ ${m.plate || m.carLabel}: DB="${m.dbStatus}" actual="${m.actualStatus}" — ${m.reason}`));
     }
 
     return lines.join('\n');
