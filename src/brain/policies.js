@@ -235,7 +235,7 @@ class Policies {
       }
 
       // Update delivery zones
-      if (entry.key === 'delivery_zones' || entry.category === 'delivery_zones') {
+      if (entry.key === 'delivery_zones' || (entry.key && entry.key.startsWith('delivery_zone'))) {
         try {
           const zoneData = typeof entry.value === 'string' ? JSON.parse(entry.value) : entry.value;
           if (zoneData) Object.assign(this.deliveryZones, zoneData);

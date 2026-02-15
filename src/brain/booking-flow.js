@@ -15,7 +15,8 @@
 const policies = require('./policies');
 const notifications = require('./notifications');
 const customerFlows = require('./customer-flows');
-const { syncEngine, agreementsService } = require('../supabase/services');
+const { syncEngine, agreementsService, fleetService } = require('../supabase/services');
+const { validateFleetStatus } = require('../utils/validators');
 const { daysBetween, todayMYT } = require('../utils/time');
 
 const BOOKING_STATES = {
@@ -45,7 +46,7 @@ class BookingFlow {
   /**
    * Start a new booking flow.
    */
-  start(phone, name, isAdmin = false) {
+  async start(phone, name, isAdmin = false) {
     this.sessions.set(phone, {
       state: BOOKING_STATES.SELECTING_CAR,
       phone,
@@ -60,8 +61,12 @@ class BookingFlow {
       createdAt: new Date(),
     });
 
-    const cache = syncEngine.getCache();
-    const validated = cache.validatedCars || cache.cars;
+    // Fetch fresh data (don't rely on cache which may be empty if sync failed)
+    const [allCars, activeAgreements] = await Promise.all([
+      fleetService.getAllCars(),
+      agreementsService.getActiveAgreements(),
+    ]);
+    const { validated } = validateFleetStatus(allCars, activeAgreements);
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
 
     if (available.length === 0) {

@@ -2,24 +2,24 @@
  * Schema: bot_data_store table
  * Key-value store for all bot configuration, pricing, zones, FAQ, logs.
  *
- * Columns (actual DB — no is_active column):
+ * Actual DB columns:
  *   id (int8)             - Primary key
- *   key (text)            - e.g. "economy_daily", "zone_klcc", "faq_deposit"
+ *   key (text)            - e.g. "car_prices:summary", "admin_name:60138606455"
  *   value (jsonb)         - The actual data (flexible JSON)
- *   category (text)       - May or may not exist; e.g. "pricing", "delivery_zones", "faq"
- *   description (text)    - Human-readable description (may not exist)
+ *   created_by (text)     - Who created the entry
  *   created_at (timestamptz)
  *   updated_at (timestamptz)
  *
- * Known categories:
- *   "pricing"         - Rate cards, discounts, seasonal pricing
- *   "delivery_zones"  - Delivery locations with fees
+ * Key prefixes (used instead of categories):
+ *   "car_prices:"     - Rate cards, pricing tiers
+ *   "delivery_zone"   - Delivery locations with fees
  *   "faq"             - Frequently asked questions + answers
- *   "testimonials"    - Customer testimonials
- *   "admin"           - Admin names, phones, permissions
+ *   "admin_name:"     - Admin names and phones
  *   "config"          - Bot configuration values
- *   "templates"       - Message templates (booking confirm, reminder, etc.)
- *   "logs"            - Interaction logs, error logs
+ *   "template"        - Message templates
+ *   "escalation:"     - Escalation logs
+ *   "jarvis_error_"   - Error logs
+ *   "car_media:"      - Car media URLs
  */
 
 const TABLE = 'bot_data_store';
