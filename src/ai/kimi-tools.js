@@ -323,10 +323,13 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
     case 'get_jrv_location': {
       const locationService = require('../utils/location');
       return {
-        name: 'JRV Car Rental, Seremban Gateway',
-        address: 'Seremban Gateway, Seremban - Bukit Nenas Hwy, 70200 Seremban, Negeri Sembilan',
+        name: 'JRV Car Rental',
+        branches: [
+          '195, Jalan S2 B14, Seremban 2, 70300 Seremban, Negeri Sembilan',
+          'Lot 12071, Jalan Sungai Ujong, Taman Ast, 70200 Seremban, Negeri Sembilan',
+        ],
         mapsLink: locationService.jrvLocation(),
-        coordinates: { lat: 2.7256079, lng: 101.9289448 },
+        website: 'https://jrvservices.co',
       };
     }
 

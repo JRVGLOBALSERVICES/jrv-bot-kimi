@@ -151,15 +151,21 @@ class NotificationManager {
 
   /**
    * New booking created.
+   * Includes explicit plate assignment for admin — customer does NOT see this.
    */
   async onNewBooking(agreement) {
-    const msg = `*📋 New Booking*\n` +
+    const msg = `*📋 NEW BOOKING*\n` +
       `\`\`\`\n` +
       `Customer: ${agreement.customer_name}\n` +
-      `Car: ${agreement.plate_number || agreement.car_type}\n` +
+      `Phone: +${agreement.mobile || 'N/A'}\n` +
+      `Car: ${agreement.car_type || 'N/A'}\n` +
+      `Plate Assigned: ${agreement.plate_number || 'N/A'}\n` +
       `Period: ${(agreement.date_start || '').slice(0, 10)} → ${(agreement.date_end || '').slice(0, 10)}\n` +
       `Amount: RM${agreement.total_price || 'TBD'}\n` +
-      `\`\`\``;
+      (agreement.delivery ? `${agreement.delivery}\n` : '') +
+      `\`\`\`\n` +
+      `_Customer has NOT been given the plate number._\n` +
+      `_Share plate details on pickup/delivery day._`;
 
     await this.notifySuperadmin(msg);
   }

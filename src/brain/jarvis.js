@@ -47,9 +47,15 @@ class JarvisBrain {
   async process(msg) {
     const { phone, body, type, media, name } = msg;
 
-    // --- 1. Identify user ---
+    // --- 0. Check if bot is paused by dashboard ---
     const isAdmin = syncEngine.isAdmin(phone) || policies.isAdmin(phone);
     const isBoss = adminTools.isBoss(phone) || msg.isBoss || false;
+
+    if (syncEngine.isPaused() && !isAdmin) {
+      return { text: 'Maaf, kami sedang tidak aktif buat seketika. Sila hubungi +60126565477 secara terus. / Sorry, we are temporarily offline. Please contact +60126565477 directly.' };
+    }
+
+    // --- 1. Identify user ---
     const existingCustomer = syncEngine.lookupCustomer(phone);
     const customerHistory = existingCustomer
       ? await agreementsService.getCustomerHistory(phone).catch(() => null)
