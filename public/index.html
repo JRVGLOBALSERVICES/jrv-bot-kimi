@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS Dashboard — JRV Car Rental</title>
+  <style>
+    :root {
+      --bg: #0a0a0a; --card: #111; --border: #222; --accent: #00ff41;
+      --red: #ff4444; --orange: #ffa500; --yellow: #ffcc00; --blue: #00bfff;
+      --text: #e0e0e0; --dim: #666; --green: #00ff41;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace; background: var(--bg); color: var(--text); }
+    .login { display: flex; align-items: center; justify-content: center; height: 100vh; }
+    .login-box { background: var(--card); border: 1px solid var(--border); padding: 40px; border-radius: 8px; text-align: center; }
+    .login-box h1 { color: var(--accent); margin-bottom: 20px; font-size: 18px; }
+    .login-box input { width: 260px; padding: 10px; background: var(--bg); color: var(--accent); border: 1px solid var(--border); font-family: inherit; font-size: 14px; border-radius: 4px; }
+    .login-box button { margin-top: 12px; padding: 10px 30px; background: var(--accent); color: var(--bg); border: none; font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 4px; }
+    .login-box .error { color: var(--red); margin-top: 10px; font-size: 12px; }
+
+    .dashboard { display: none; padding: 16px; max-width: 1200px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .header h1 { color: var(--accent); font-size: 16px; }
+    .header .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .header .online { background: var(--green); }
+    .header .offline { background: var(--red); }
+    .header .unknown { background: var(--dim); }
+    .header .right { display: flex; gap: 10px; align-items: center; }
+    .header .right button { padding: 4px 12px; font-family: inherit; font-size: 11px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; border-radius: 3px; }
+    .header .right button:hover { border-color: var(--accent); color: var(--accent); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; }
+    .card h2 { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .card .big { font-size: 28px; font-weight: bold; color: var(--accent); }
+    .card .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .card .row:last-child { border: none; }
+    .card .label { color: var(--dim); }
+
+    .full { grid-column: 1 / -1; }
+    .half { grid-column: span 1; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; color: var(--dim); padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 6px 8px; border-bottom: 1px solid #1a1a1a; }
+    tr:hover td { background: #1a1a1a; }
+    .tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+    .tag-green { background: #0a2a0a; color: var(--green); }
+    .tag-red { background: #2a0a0a; color: var(--red); }
+    .tag-orange { background: #2a1a0a; color: var(--orange); }
+    .tag-blue { background: #0a1a2a; color: var(--blue); }
+    .tag-yellow { background: #2a2a0a; color: var(--yellow); }
+
+    .controls { margin-bottom: 16px; }
+    .control-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+    .control-group label { color: var(--dim); font-size: 11px; min-width: 80px; }
+    .control-group select, .control-group button {
+      padding: 6px 12px; font-family: inherit; font-size: 12px;
+      background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;
+    }
+    .control-group select:hover, .control-group button:hover { border-color: var(--accent); }
+    .btn-danger { border-color: var(--red) !important; color: var(--red) !important; }
+    .btn-danger:hover { background: var(--red) !important; color: var(--bg) !important; }
+    .btn-warning { border-color: var(--orange) !important; color: var(--orange) !important; }
+    .btn-success { border-color: var(--green) !important; color: var(--green) !important; }
+    .btn-success:hover { background: var(--green) !important; color: var(--bg) !important; }
+
+    .log { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-size: 11px; max-height: 120px; overflow-y: auto; color: var(--dim); }
+    .log .entry { padding: 2px 0; }
+    .log .entry.error { color: var(--red); }
+    .log .entry.success { color: var(--green); }
+
+    @media (max-width: 600px) {
+      .grid { grid-template-columns: 1fr; }
+      .control-group { flex-direction: column; align-items: stretch; }
+      .header { flex-direction: column; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div class="login" id="loginScreen">
+  <div class="login-box">
+    <h1>// JARVIS DASHBOARD</h1>
+    <p style="color:#666;font-size:12px;margin-bottom:16px;">JRV Car Rental — Admin Panel</p>
+    <input type="password" id="secretInput" placeholder="Dashboard secret..." onkeypress="if(event.key==='Enter')login()">
+    <br>
+    <button onclick="login()">Access</button>
+    <div class="error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div class="dashboard" id="dashboard">
+  <div class="header">
+    <div>
+      <h1>// JARVIS DASHBOARD</h1>
+      <span style="font-size:11px;color:var(--dim);">
+        <span class="status-dot unknown" id="botDot"></span>
+        <span id="botStatusText">Checking...</span>
+        &nbsp;|&nbsp; Last refresh: <span id="lastRefresh">—</span>
+      </span>
+    </div>
+    <div class="right">
+      <button onclick="refreshAll()">Refresh</button>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="grid" id="statsGrid">
+    <div class="card">
+      <h2>Fleet</h2>
+      <div class="big" id="fleetTotal">—</div>
+      <div class="row"><span class="label">Available</span><span id="fleetAvail" style="color:var(--green)">—</span></div>
+      <div class="row"><span class="label">Rented</span><span id="fleetRented" style="color:var(--blue)">—</span></div>
+      <div class="row"><span class="label">Maintenance</span><span id="fleetMaint" style="color:var(--orange)">—</span></div>
+    </div>
+    <div class="card">
+      <h2>Bookings</h2>
+      <div class="big" id="bookingsTotal">—</div>
+      <div class="row"><span class="label">Expiring (3d)</span><span id="bookingsExpiring" style="color:var(--orange)">—</span></div>
+      <div class="row"><span class="label">Overdue</span><span id="bookingsOverdue" style="color:var(--red)">—</span></div>
+    </div>
+    <div class="card">
+      <h2>Revenue</h2>
+      <div class="big" id="earningsMonth">—</div>
+      <div class="row"><span class="label">Today</span><span id="earningsToday">—</span></div>
+      <div class="row"><span class="label">All Time</span><span id="earningsTotal">—</span></div>
+      <div class="row"><span class="label">Customers</span><span id="earningsCustomers">—</span></div>
+    </div>
+    <div class="card">
+      <h2>Bot Status</h2>
+      <div class="row"><span class="label">Online</span><span id="cfgOnline">—</span></div>
+      <div class="row"><span class="label">Heartbeat</span><span id="cfgHeartbeat">—</span></div>
+      <div class="row"><span class="label">WhatsApp</span><span id="cfgWhatsApp">—</span></div>
+      <div class="row"><span class="label">Last Cmd</span><span id="cfgLastCmd">—</span></div>
+    </div>
+  </div>
+
+  <!-- Controls: Kill Switch + Model Switching -->
+  <div class="card full controls">
+    <h2>Controls</h2>
+    <div class="control-group">
+      <label>Bot:</label>
+      <button class="btn-danger" onclick="sendCommand('kill')">Kill</button>
+      <button class="btn-warning" onclick="sendCommand('pause')">Pause</button>
+      <button class="btn-success" onclick="sendCommand('resume')">Resume</button>
+      <button onclick="sendCommand('restart')">Restart</button>
+    </div>
+    <div class="control-group">
+      <label>Kimi Model:</label>
+      <select id="kimiModel"></select>
+      <button onclick="updateModel('kimi')">Apply</button>
+    </div>
+    <div class="control-group">
+      <label>Local Model:</label>
+      <select id="localModel"></select>
+      <button onclick="updateModel('local')">Apply</button>
+    </div>
+    <div class="control-group">
+      <label>Gemini:</label>
+      <select id="geminiModel"></select>
+      <button onclick="updateModel('gemini')">Apply</button>
+    </div>
+    <div class="control-group">
+      <label>AI Mode:</label>
+      <select id="aiMode"></select>
+      <button onclick="updateModel('aiMode')">Apply</button>
+    </div>
+    <div class="log" id="actionLog"></div>
+  </div>
+
+  <!-- Fleet Table -->
+  <div class="card full">
+    <h2>Fleet</h2>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Plate</th><th>Car</th><th>Status</th><th>Rate</th></tr></thead>
+        <tbody id="fleetTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Overdue Alerts -->
+  <div class="card full" id="overdueSection" style="display:none;">
+    <h2 style="color:var(--red);">Overdue Returns</h2>
+    <table>
+      <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Was Due</th><th>Days Over</th></tr></thead>
+      <tbody id="overdueTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Expiring Rentals -->
+  <div class="card full" id="expiringSection" style="display:none;">
+    <h2 style="color:var(--orange);">Expiring Soon</h2>
+    <table>
+      <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Ends</th><th>Days Left</th></tr></thead>
+      <tbody id="expiringTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Active Bookings -->
+  <div class="card full">
+    <h2>Active Bookings</h2>
+    <table>
+      <thead><tr><th>Customer</th><th>Phone</th><th>Plate</th><th>Period</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody id="bookingsTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API_BASE = '/api';
+let SECRET = localStorage.getItem('jrv_secret') || '';
+let refreshTimer = null;
+
+// --- Auth ---
+function login() {
+  SECRET = document.getElementById('secretInput').value.trim();
+  if (!SECRET) return;
+  localStorage.setItem('jrv_secret', SECRET);
+  document.getElementById('loginError').textContent = '';
+  testAuth();
+}
+
+function logout() {
+  SECRET = '';
+  localStorage.removeItem('jrv_secret');
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  clearInterval(refreshTimer);
+}
+
+async function testAuth() {
+  try {
+    const r = await api('/fleet');
+    if (r.error) throw new Error(r.error);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    refreshAll();
+    refreshTimer = setInterval(refreshAll, 60000);
+  } catch (e) {
+    document.getElementById('loginError').textContent = 'Invalid secret';
+    localStorage.removeItem('jrv_secret');
+  }
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(API_BASE + path, {
+    ...opts,
+    headers: { 'Authorization': `Bearer ${SECRET}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  return r.json();
+}
+
+// --- Refresh ---
+async function refreshAll() {
+  document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+  await Promise.all([loadFleet(), loadBookings(), loadEarnings(), loadStatus(), loadConfig()]);
+}
+
+// --- Fleet ---
+async function loadFleet() {
+  try {
+    const d = await api('/fleet');
+    document.getElementById('fleetTotal').textContent = d.total || 0;
+    document.getElementById('fleetAvail').textContent = d.available || 0;
+    document.getElementById('fleetRented').textContent = d.rented || 0;
+    document.getElementById('fleetMaint').textContent = d.maintenance || 0;
+
+    const tb = document.getElementById('fleetTable');
+    tb.innerHTML = (d.cars || []).map(c => {
+      const tag = c.status === 'available' ? 'tag-green' : c.status === 'rented' ? 'tag-blue' : 'tag-orange';
+      return `<tr>
+        <td>${c.plate_number || '—'}</td>
+        <td>${c.car_name || c.body_type || '—'}</td>
+        <td><span class="tag ${tag}">${c.status}</span></td>
+        <td>RM${c.daily_price || '—'}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { logAction('Fleet load failed: ' + e.message, true); }
+}
+
+// --- Bookings ---
+async function loadBookings() {
+  try {
+    const d = await api('/bookings');
+    document.getElementById('bookingsTotal').textContent = d.total_active || 0;
+    document.getElementById('bookingsExpiring').textContent = (d.expiring || []).length;
+    document.getElementById('bookingsOverdue').textContent = (d.overdue || []).length;
+
+    // Overdue table
+    const od = d.overdue || [];
+    document.getElementById('overdueSection').style.display = od.length ? 'block' : 'none';
+    document.getElementById('overdueTable').innerHTML = od.map(a => `<tr>
+      <td>${a.plate_number || '—'}</td>
+      <td>${a.customer_name || '—'}</td>
+      <td>${a.mobile || '—'}</td>
+      <td>${(a.date_end||'').slice(0,10)}</td>
+      <td><span class="tag tag-red">${a.days_overdue || '?'}d</span></td>
+    </tr>`).join('');
+
+    // Expiring table
+    const ex = d.expiring || [];
+    document.getElementById('expiringSection').style.display = ex.length ? 'block' : 'none';
+    document.getElementById('expiringTable').innerHTML = ex.map(a => `<tr>
+      <td>${a.plate_number || '—'}</td>
+      <td>${a.customer_name || '—'}</td>
+      <td>${a.mobile || '—'}</td>
+      <td>${(a.date_end||'').slice(0,10)}</td>
+      <td><span class="tag tag-yellow">${a.days_left}d</span></td>
+    </tr>`).join('');
+
+    // Active bookings table
+    const active = [...(d.expiring||[]), ...(d.active||[])];
+    document.getElementById('bookingsTable').innerHTML = active.map(a => `<tr>
+      <td>${a.customer_name || '—'}</td>
+      <td>${a.mobile || '—'}</td>
+      <td>${a.plate_number || '—'}</td>
+      <td>${(a.date_start||'').slice(0,10)} → ${(a.date_end||'').slice(0,10)}</td>
+      <td>RM${a.total_price || '—'}</td>
+      <td><span class="tag tag-blue">${a.status || '—'}</span></td>
+    </tr>`).join('');
+  } catch (e) { logAction('Bookings load failed: ' + e.message, true); }
+}
+
+// --- Earnings ---
+async function loadEarnings() {
+  try {
+    const d = await api('/earnings');
+    document.getElementById('earningsMonth').textContent = 'RM' + (d.month || 0).toLocaleString();
+    document.getElementById('earningsToday').textContent = 'RM' + (d.today || 0).toLocaleString();
+    document.getElementById('earningsTotal').textContent = 'RM' + (d.total || 0).toLocaleString();
+    document.getElementById('earningsCustomers').textContent = d.uniqueCustomers || 0;
+  } catch (e) { logAction('Earnings load failed: ' + e.message, true); }
+}
+
+// --- Status ---
+async function loadStatus() {
+  try {
+    const d = await api('/status');
+    const dot = document.getElementById('botDot');
+    const txt = document.getElementById('botStatusText');
+
+    if (d.online) {
+      dot.className = 'status-dot online';
+      txt.textContent = 'Bot Online';
+    } else {
+      dot.className = 'status-dot offline';
+      txt.textContent = 'Bot Offline';
+    }
+
+    document.getElementById('cfgOnline').innerHTML = d.online
+      ? '<span style="color:var(--green)">YES</span>'
+      : '<span style="color:var(--red)">NO</span>';
+    document.getElementById('cfgHeartbeat').textContent = d.lastHeartbeat ? new Date(d.lastHeartbeat).toLocaleString() : '—';
+    document.getElementById('cfgWhatsApp').textContent = d.whatsapp?.status || 'unknown';
+    document.getElementById('cfgLastCmd').textContent = d.lastCommand?.command || 'none';
+  } catch (e) { logAction('Status load failed: ' + e.message, true); }
+}
+
+// --- Config / Models ---
+async function loadConfig() {
+  try {
+    const d = await api('/config');
+    const cfg = d.config || {};
+    const opts = d.options || {};
+
+    fillSelect('kimiModel', opts.kimiModels || [], cfg.kimiModel || 'kimi-k2-0905-preview');
+    fillSelect('localModel', opts.localModels || [], cfg.localModel || 'llama3.1:8b');
+    fillSelect('geminiModel', opts.geminiModels || [], cfg.geminiModel || 'gemini-2.0-flash');
+    fillSelect('aiMode', opts.aiModes || [], cfg.aiMode || 'auto');
+  } catch (e) { logAction('Config load failed: ' + e.message, true); }
+}
+
+function fillSelect(id, options, selected) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = options.map(o => `<option value="${o}" ${o === selected ? 'selected' : ''}>${o}</option>`).join('');
+}
+
+async function updateModel(type) {
+  const body = {};
+  if (type === 'kimi') body.kimiModel = document.getElementById('kimiModel').value;
+  if (type === 'local') body.localModel = document.getElementById('localModel').value;
+  if (type === 'gemini') body.geminiModel = document.getElementById('geminiModel').value;
+  if (type === 'aiMode') body.aiMode = document.getElementById('aiMode').value;
+
+  try {
+    const r = await api('/config', { method: 'POST', body });
+    if (r.error) throw new Error(r.error);
+    logAction(`Config updated: ${JSON.stringify(body)}`);
+  } catch (e) { logAction('Config update failed: ' + e.message, true); }
+}
+
+// --- Control ---
+async function sendCommand(cmd) {
+  if (cmd === 'kill' && !confirm('Kill the bot? It will stop processing messages until manually restarted.')) return;
+
+  try {
+    const r = await api('/control', { method: 'POST', body: { command: cmd } });
+    if (r.error) throw new Error(r.error);
+    logAction(`Command sent: ${cmd}`);
+    setTimeout(loadStatus, 2000);
+  } catch (e) { logAction('Command failed: ' + e.message, true); }
+}
+
+// --- Log ---
+function logAction(msg, isError = false) {
+  const log = document.getElementById('actionLog');
+  const ts = new Date().toLocaleTimeString();
+  log.innerHTML = `<div class="entry ${isError ? 'error' : 'success'}">[${ts}] ${msg}</div>` + log.innerHTML;
+}
+
+// --- Init ---
+if (SECRET) testAuth();
+</script>
+</body>
+</html>

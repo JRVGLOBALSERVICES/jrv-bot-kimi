@@ -37,11 +37,13 @@ class WhatsAppChannel {
     this.client.on('qr', (qr) => {
       console.log('[WhatsApp] Scan this QR code:');
       qrcode.generate(qr, { small: true });
+      this._reportStatus('waiting_for_qr', { qr });
     });
 
     this.client.on('ready', () => {
       this.ready = true;
       console.log('[WhatsApp] Connected and ready!');
+      this._reportStatus('connected');
       if (this.onReady) this.onReady();
     });
 
@@ -59,6 +61,7 @@ class WhatsAppChannel {
     this.client.on('disconnected', (reason) => {
       this.ready = false;
       console.warn('[WhatsApp] Disconnected:', reason);
+      this._reportStatus('disconnected', { reason });
     });
 
     await this.client.initialize();
@@ -217,6 +220,23 @@ class WhatsAppChannel {
     const b64 = buffer.toString('base64');
     const media = new MessageMedia(mimetype, b64, filename);
     await this.client.sendMessage(superadminChatId, media, { caption });
+  }
+
+  /**
+   * Report WhatsApp connection status to Supabase for the dashboard.
+   */
+  async _reportStatus(status, extras = {}) {
+    try {
+      const supabase = require('../supabase/client');
+      await supabase.from('bot_data_store').upsert({
+        key: 'whatsapp_status',
+        value: { status, ...extras, timestamp: new Date().toISOString() },
+        created_by: 'jarvis',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+    } catch (err) {
+      // Non-critical — don't crash WhatsApp for status report failure
+    }
   }
 
   isConnected() {

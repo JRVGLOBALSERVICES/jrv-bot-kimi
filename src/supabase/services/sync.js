@@ -3,6 +3,7 @@ const agreementsService = require('./agreements-service');
 const dataStoreService = require('./data-store-service');
 const { validateFleetStatus, getPlate } = require('../../utils/validators');
 const { formatMYT } = require('../../utils/time');
+const config = require('../../config');
 
 /**
  * SyncEngine - Periodically syncs Supabase data to local cache.
@@ -26,7 +27,12 @@ class SyncEngine {
       lastSync: null,
     };
     this.syncInterval = null;
+    this.controlInterval = null;
     this.intervalMs = 5 * 60 * 1000; // 5 minutes
+    this.controlIntervalMs = 30 * 1000; // 30 seconds
+    this._lastControlTimestamp = null;
+    this._paused = false;
+    this._onCommand = null; // callback for control commands
   }
 
   async sync() {
@@ -74,16 +80,155 @@ class SyncEngine {
     }
   }
 
+  /**
+   * Write bot heartbeat to Supabase so the dashboard knows we're alive.
+   */
+  async writeHeartbeat(extras = {}) {
+    try {
+      const supabase = require('../client');
+      await supabase.from('bot_data_store').upsert({
+        key: 'bot_status',
+        value: {
+          online: true,
+          mode: config.mode,
+          cars: this.cache.cars.length,
+          agreements: this.cache.agreements.length,
+          lastSync: this.cache.lastSync?.toISOString(),
+          paused: this._paused,
+          ...extras,
+        },
+        created_by: 'jarvis',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+    } catch (err) {
+      // Heartbeat failure is non-critical
+      console.warn('[Sync] Heartbeat write failed:', err.message);
+    }
+  }
+
+  /**
+   * Poll for control commands from the dashboard.
+   */
+  async pollControl() {
+    try {
+      const supabase = require('../client');
+      const { data } = await supabase
+        .from('bot_data_store')
+        .select('value, updated_at')
+        .eq('key', 'bot_control')
+        .single();
+
+      if (!data?.value) return;
+
+      const { command, timestamp } = data.value;
+      if (!timestamp || timestamp === this._lastControlTimestamp) return;
+
+      this._lastControlTimestamp = timestamp;
+      console.log(`[Sync] Dashboard command received: ${command}`);
+
+      switch (command) {
+        case 'kill':
+          console.log('[Sync] KILL command received from dashboard. Shutting down...');
+          await this.writeHeartbeat({ online: false, shutdownReason: 'dashboard_kill' });
+          process.exit(0);
+          break;
+
+        case 'restart':
+          console.log('[Sync] RESTART command received from dashboard.');
+          await this.writeHeartbeat({ online: false, shutdownReason: 'dashboard_restart' });
+          process.exit(1); // Exit with error so process manager restarts
+          break;
+
+        case 'pause':
+          this._paused = true;
+          console.log('[Sync] PAUSE command — bot will ignore customer messages.');
+          await this.writeHeartbeat();
+          break;
+
+        case 'resume':
+          this._paused = false;
+          console.log('[Sync] RESUME command — bot is active again.');
+          await this.writeHeartbeat();
+          break;
+      }
+
+      if (this._onCommand) this._onCommand(command);
+    } catch (err) {
+      // Control polling failure is non-critical
+    }
+  }
+
+  /**
+   * Poll for config changes from dashboard (model switching etc).
+   */
+  async pollConfig() {
+    try {
+      const supabase = require('../client');
+      const { data } = await supabase
+        .from('bot_data_store')
+        .select('value')
+        .eq('key', 'bot_config')
+        .single();
+
+      if (!data?.value) return;
+      const cfg = data.value;
+
+      // Apply model changes
+      if (cfg.kimiModel && cfg.kimiModel !== config.kimi.model) {
+        console.log(`[Sync] Kimi model changed: ${config.kimi.model} → ${cfg.kimiModel}`);
+        config.kimi.model = cfg.kimiModel;
+      }
+      if (cfg.localModel && cfg.localModel !== config.localAI.model) {
+        console.log(`[Sync] Local model changed: ${config.localAI.model} → ${cfg.localModel}`);
+        config.localAI.model = cfg.localModel;
+      }
+      if (cfg.geminiModel && cfg.geminiModel !== config.gemini.model) {
+        console.log(`[Sync] Gemini model changed: ${config.gemini.model} → ${cfg.geminiModel}`);
+        config.gemini.model = cfg.geminiModel;
+      }
+    } catch (err) {
+      // Config polling failure is non-critical
+    }
+  }
+
+  /**
+   * Set callback for control commands.
+   */
+  onCommand(callback) {
+    this._onCommand = callback;
+  }
+
+  /**
+   * Check if bot is paused by dashboard.
+   */
+  isPaused() {
+    return this._paused;
+  }
+
   start() {
     console.log('[Sync] Starting auto-sync every 5 minutes...');
-    this.sync();
-    this.syncInterval = setInterval(() => this.sync(), this.intervalMs);
+    this.sync().then(() => this.writeHeartbeat());
+    this.syncInterval = setInterval(() => {
+      this.sync().then(() => this.writeHeartbeat());
+    }, this.intervalMs);
+
+    // Control polling every 30 seconds
+    this.pollControl();
+    this.pollConfig();
+    this.controlInterval = setInterval(() => {
+      this.pollControl();
+      this.pollConfig();
+    }, this.controlIntervalMs);
   }
 
   stop() {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
+    }
+    if (this.controlInterval) {
+      clearInterval(this.controlInterval);
+      this.controlInterval = null;
     }
     console.log('[Sync] Stopped.');
   }
