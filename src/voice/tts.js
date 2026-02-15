@@ -92,63 +92,91 @@ class TTSEngine {
   }
 
   async _edgeTTS(text, outputPath, language, speed) {
-    // Use JARVIS voice profile for voice selection
     const voice = jarvisVoice.getVoice(language);
     const pitch = jarvisVoice.getPitch();
-    const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
-    const pitchStr = pitch && pitch !== '0%' ? `--pitch=${pitch}` : '';
     const isWin = process.platform === 'win32';
-    // Clean text for shell: remove quotes and newlines
-    const safeText = text.replace(/['"]/g, '').replace(/\n/g, ' ').replace(/[`$\\]/g, '');
 
-    let cliError = null;
-    try {
-      // Try edge-tts CLI directly
-      const cmd = `edge-tts --voice "${voice}" ${rateStr} ${pitchStr} --text "${safeText}" --write-media "${outputPath}"`.replace(/\s{2,}/g, ' ');
-      console.log(`[TTS] Running: ${cmd.slice(0, 120)}...`);
-      execSync(cmd, { timeout: 30000, stdio: 'pipe' });
-    } catch (err) {
-      cliError = err.stderr ? err.stderr.toString().slice(0, 200) : err.message;
-      console.warn(`[TTS] edge-tts CLI failed: ${cliError}`);
+    // Write text to file to avoid all shell escaping issues
+    const textPath = path.join(this.outputDir, `tts_input_${Date.now()}.txt`);
+    fs.writeFileSync(textPath, text, 'utf8');
 
-      // Fallback: use Python edge_tts module directly
-      const pyCmd = isWin ? 'python' : 'python3';
-      // Write text to a temp file to avoid shell escaping issues
-      const textPath = path.join(this.outputDir, 'tts_input.txt');
-      fs.writeFileSync(textPath, text, 'utf8');
-
-      const pyPitch = pitch && pitch !== '0%' ? `, pitch="${pitch}"` : '';
-      const pyRate = speed !== 1.0 ? `, rate="${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%"` : '';
-      const pyScript = `
+    const pyPitch = pitch && pitch !== '0%' ? `, pitch="${pitch}"` : '';
+    const pyRate = speed !== 1.0 ? `, rate="${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%"` : '';
+    const pyScript = `
 import edge_tts, asyncio, sys
 
 async def main():
-    with open(r"${textPath}", "r", encoding="utf-8") as f:
+    with open(r"${textPath.replace(/\\/g, '\\\\')}", "r", encoding="utf-8") as f:
         text = f.read()
     communicate = edge_tts.Communicate(text, "${voice}"${pyRate}${pyPitch})
-    await communicate.save(r"${outputPath}")
-    print("OK", file=sys.stderr)
+    await communicate.save(r"${outputPath.replace(/\\/g, '\\\\')}")
+    print("OK")
 
 asyncio.run(main())
 `.trim();
-      const pyPath = path.join(this.outputDir, 'tts_temp.py');
-      fs.writeFileSync(pyPath, pyScript);
+    const pyPath = path.join(this.outputDir, `tts_${Date.now()}.py`);
+    fs.writeFileSync(pyPath, pyScript);
+
+    // Find Python: try multiple common paths
+    const pyCmds = isWin
+      ? ['python', 'python3', 'py', 'py -3']
+      : ['python3', 'python'];
+
+    let lastErr = null;
+    for (const pyCmd of pyCmds) {
       try {
-        console.log(`[TTS] Trying Python fallback: ${pyCmd} ${pyPath}`);
-        const result = execSync(`${pyCmd} "${pyPath}"`, { timeout: 30000, stdio: 'pipe' });
-        console.log(`[TTS] Python edge-tts output: ${result.toString().slice(0, 100)}`);
-      } catch (pyErr) {
-        const pyErrMsg = pyErr.stderr ? pyErr.stderr.toString().slice(0, 300) : pyErr.message;
-        console.error(`[TTS] Python edge-tts also failed: ${pyErrMsg}`);
-        throw new Error(`Edge TTS failed. CLI: ${cliError}. Python: ${pyErrMsg}`);
-      } finally {
+        console.log(`[TTS] Running: ${pyCmd} "${pyPath}"`);
+        execSync(`${pyCmd} "${pyPath}"`, {
+          timeout: 30000,
+          stdio: 'pipe',
+          encoding: 'utf-8',
+          // Inherit full user PATH on Windows so PM2 can find Python
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        });
+
+        // Clean up temp files
         try { fs.unlinkSync(pyPath); } catch {}
         try { fs.unlinkSync(textPath); } catch {}
+
+        // Verify output file exists
+        if (!fs.existsSync(outputPath)) {
+          throw new Error('Edge TTS produced no output file');
+        }
+
+        const stats = fs.statSync(outputPath);
+        console.log(`[TTS] Generated ${stats.size} bytes with ${pyCmd}: ${outputPath}`);
+
+        return {
+          filePath: outputPath,
+          duration: this._estimateDuration(text, speed),
+          engine: 'edge-tts',
+          voice,
+        };
+      } catch (err) {
+        lastErr = err.stderr || err.message;
+        console.warn(`[TTS] ${pyCmd} failed: ${String(lastErr).slice(0, 200)}`);
       }
     }
 
+    // All Python commands failed — try edge-tts CLI as last resort
+    try {
+      const safeText = text.replace(/['"]/g, '').replace(/\n/g, ' ').replace(/[`$\\]/g, '');
+      const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
+      const pitchStr = pitch && pitch !== '0%' ? `--pitch=${pitch}` : '';
+      const cmd = `edge-tts --voice "${voice}" ${rateStr} ${pitchStr} --text "${safeText}" --write-media "${outputPath}"`.replace(/\s{2,}/g, ' ');
+      execSync(cmd, { timeout: 30000, stdio: 'pipe' });
+    } catch (cliErr) {
+      // Clean up
+      try { fs.unlinkSync(pyPath); } catch {}
+      try { fs.unlinkSync(textPath); } catch {}
+      throw new Error(`Edge TTS failed.\nPython: ${String(lastErr).slice(0, 200)}\nCLI: ${cliErr.message.slice(0, 200)}`);
+    }
+
+    try { fs.unlinkSync(pyPath); } catch {}
+    try { fs.unlinkSync(textPath); } catch {}
+
     if (!fs.existsSync(outputPath)) {
-      throw new Error(`Edge TTS produced no output file at ${outputPath}. CLI error: ${cliError || 'none'}`);
+      throw new Error('Edge TTS produced no output file');
     }
 
     const stats = fs.statSync(outputPath);
@@ -168,24 +196,31 @@ asyncio.run(main())
   }
 
   async isAvailable() {
+    // Check Piper local server
     try {
       const res = await fetch(`${this.localUrl}/api/voices`);
-      return res.ok;
-    } catch {
+      if (res.ok) return true;
+    } catch {}
+
+    // Check edge-tts Python module
+    const pyCmds = process.platform === 'win32'
+      ? ['python', 'python3', 'py']
+      : ['python3', 'python'];
+    for (const py of pyCmds) {
       try {
-        const findCmd = process.platform === 'win32' ? 'where' : 'which';
-        execSync(`${findCmd} edge-tts`, { stdio: 'pipe' });
+        execSync(`${py} -c "import edge_tts"`, { stdio: 'pipe', timeout: 5000 });
         return true;
-      } catch {
-        try {
-          const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
-          execSync(`${pyCmd} -c "import edge_tts"`, { stdio: 'pipe' });
-          return true;
-        } catch {
-          return false;
-        }
-      }
+      } catch {}
     }
+
+    // Check edge-tts CLI
+    try {
+      const findCmd = process.platform === 'win32' ? 'where' : 'which';
+      execSync(`${findCmd} edge-tts`, { stdio: 'pipe' });
+      return true;
+    } catch {}
+
+    return false;
   }
 }
 
