@@ -8,6 +8,7 @@
 const { fleetService, agreementsService, dataStoreService, syncEngine } = require('../supabase/services');
 const policies = require('../brain/policies');
 const { todayMYT, daysBetween } = require('../utils/time');
+const { colorName } = require('../utils/validators');
 
 // ─── Tool Definitions (OpenAI function format) ──────────
 
@@ -184,7 +185,7 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       return available.map(c => {
         const result = {
           car_name: c._carName || c.body_type || '',
-          color: c.color,
+          color: colorName(c.color),
           year: c.year,
           body_type: c.body_type,
           daily_price: c.daily_price,
@@ -273,7 +274,7 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       return results.map(c => {
         const result = {
           car_name: c._carName || c.body_type || '',
-          color: c.color,
+          color: colorName(c.color),
           status: c.status,
           daily_price: c.daily_price,
         };

@@ -169,6 +169,71 @@ function filterValidAgreements(agreements) {
   return agreements.filter(a => !EXCLUDED_AGREEMENT_STATUSES.includes(a.status));
 }
 
+/**
+ * Convert hex color codes to readable color names.
+ * Handles: #hex, hex, and already-named colors.
+ */
+const HEX_COLORS = {
+  '#000000': 'Black', '#ffffff': 'White', '#ff0000': 'Red',
+  '#00ff00': 'Green', '#0000ff': 'Blue', '#ffff00': 'Yellow',
+  '#ff00ff': 'Magenta', '#00ffff': 'Cyan', '#808080': 'Grey',
+  '#c0c0c0': 'Silver', '#800000': 'Maroon', '#800080': 'Purple',
+  '#008000': 'Dark Green', '#000080': 'Navy', '#ffa500': 'Orange',
+  '#ffc0cb': 'Pink', '#a52a2a': 'Brown', '#f5f5dc': 'Beige',
+  '#d4af37': 'Gold', '#e5e4e2': 'Platinum',
+};
+
+function colorName(input) {
+  if (!input) return '';
+  const val = input.trim();
+
+  // Already a readable name (no # and no hex pattern)
+  if (!/^#?[0-9a-f]{3,8}$/i.test(val)) return val;
+
+  const hex = val.startsWith('#') ? val.toLowerCase() : `#${val.toLowerCase()}`;
+
+  // Exact match
+  if (HEX_COLORS[hex]) return HEX_COLORS[hex];
+
+  // Parse RGB and find closest named color by hue/saturation/lightness
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+
+  if (isNaN(r)) return val;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const diff = max - min;
+
+  // Very dark → Black
+  if (l < 30) return 'Black';
+  // Very light → White
+  if (l > 235 && diff < 20) return 'White';
+  // Low saturation → Grey/Silver
+  if (diff < 25) return l > 160 ? 'Silver' : 'Grey';
+
+  // Determine hue
+  let h = 0;
+  if (diff > 0) {
+    if (max === r) h = 60 * (((g - b) / diff) % 6);
+    else if (max === g) h = 60 * ((b - r) / diff + 2);
+    else h = 60 * ((r - g) / diff + 4);
+  }
+  if (h < 0) h += 360;
+
+  // Map hue ranges to color names
+  if (h < 15 || h >= 345) return l < 100 ? 'Maroon' : 'Red';
+  if (h < 45) return l > 100 ? 'Orange' : 'Brown';
+  if (h < 70) return 'Yellow';
+  if (h < 160) return 'Green';
+  if (h < 200) return 'Teal';
+  if (h < 260) return 'Blue';
+  if (h < 300) return 'Purple';
+  return 'Pink';
+}
+
 module.exports = {
   validateFleetStatus,
   isAgreementActive,
@@ -178,6 +243,7 @@ module.exports = {
   getPlate,
   filterValidCars,
   filterValidAgreements,
+  colorName,
   VALID_CAR_STATUSES,
   EXCLUDED_AGREEMENT_STATUSES,
   FINISHED_STATUSES,
