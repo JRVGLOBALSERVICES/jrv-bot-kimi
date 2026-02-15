@@ -8,4 +8,6 @@ tmp/
 cache/
 recordings/
 generated/
+.backups/
+.trash/
 .DS_Store

@@ -6,6 +6,7 @@ const whatsapp = require('./channels/whatsapp');
 const phone = require('./channels/phone');
 const { display, camera, gpio } = require('./hardware');
 const fs = require('fs');
+const fileSafety = require('./utils/file-safety');
 
 /**
  * JARVIS - JRV Car Rental AI Assistant
@@ -24,6 +25,10 @@ async function boot() {
   for (const dir of Object.values(config.paths)) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   }
+
+  // ─── 0. File Safety Protocol ─────────────────────
+  console.log('[Boot] File safety protocol active (.backups/ + .trash/)');
+  console.log(`[Boot] Safety audit log: ${fileSafety.getLog().length} entries`);
 
   // ─── 1. Start Supabase sync ────────────────────────
   console.log('[Boot] Starting Supabase sync...');
