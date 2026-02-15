@@ -48,7 +48,7 @@ class TTSEngine {
         result = await this._edgeTTS(text, outputPath, language, voiceSpeed);
       } catch (edgeErr) {
         console.error('[TTS] All TTS engines failed:', edgeErr.message);
-        throw new Error('Text-to-speech failed: no engines available');
+        throw new Error('Text-to-speech failed: no engines available\nFix: pip install edge-tts');
       }
     }
 

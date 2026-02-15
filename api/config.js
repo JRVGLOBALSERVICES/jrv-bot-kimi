@@ -16,6 +16,15 @@ const VALID_KIMI_MODELS = [
   'kimi-k2-thinking',
 ];
 
+const VALID_GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'llama-3.1-70b-versatile',
+  'meta-llama/llama-4-maverick-17b-128e-instruct',
+  'gemma2-9b-it',
+  'mixtral-8x7b-32768',
+];
+
 const VALID_GEMINI_MODELS = [
   'gemini-2.0-flash',
   'gemini-1.5-flash',
@@ -31,6 +40,7 @@ const VALID_LOCAL_MODELS = [
   'qwen2:7b',
 ];
 
+const VALID_CLOUD_PROVIDERS = ['kimi', 'groq'];
 const VALID_AI_MODES = ['auto', 'cloud-only', 'local-only'];
 
 module.exports = async (req, res) => {
@@ -51,22 +61,38 @@ module.exports = async (req, res) => {
         updatedAt: data?.updated_at || null,
         options: {
           kimiModels: VALID_KIMI_MODELS,
+          groqModels: VALID_GROQ_MODELS,
           geminiModels: VALID_GEMINI_MODELS,
           localModels: VALID_LOCAL_MODELS,
+          cloudProviders: VALID_CLOUD_PROVIDERS,
           aiModes: VALID_AI_MODES,
         },
       });
     }
 
     if (req.method === 'POST') {
-      const { kimiModel, localModel, geminiModel, aiMode } = req.body || {};
+      const { kimiModel, groqModel, localModel, geminiModel, aiMode, cloudProvider } = req.body || {};
       const updates = {};
+
+      if (cloudProvider) {
+        if (!VALID_CLOUD_PROVIDERS.includes(cloudProvider)) {
+          return res.status(400).json({ error: `Invalid cloud provider. Valid: ${VALID_CLOUD_PROVIDERS.join(', ')}` });
+        }
+        updates.cloudProvider = cloudProvider;
+      }
 
       if (kimiModel) {
         if (!VALID_KIMI_MODELS.includes(kimiModel)) {
           return res.status(400).json({ error: `Invalid Kimi model. Valid: ${VALID_KIMI_MODELS.join(', ')}` });
         }
         updates.kimiModel = kimiModel;
+      }
+
+      if (groqModel) {
+        if (!VALID_GROQ_MODELS.includes(groqModel)) {
+          return res.status(400).json({ error: `Invalid Groq model. Valid: ${VALID_GROQ_MODELS.join(', ')}` });
+        }
+        updates.groqModel = groqModel;
       }
 
       if (localModel) {
