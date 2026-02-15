@@ -113,7 +113,7 @@ const CANCELLATION = {
   freeCancellation: '24 hours before pickup',
   lateCancellation: 'RM50 fee if cancelled within 24 hours',
   noShow: 'Full day charge if no show',
-  note: 'Free cancellation 24h before pickup. Late cancellation: RM50. No show: full day charged.',
+  note: 'No refund on cancellations.',
 };
 
 // ─── Extension Policy ────────────────────────────────────────
