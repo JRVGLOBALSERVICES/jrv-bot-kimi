@@ -1,11 +1,15 @@
 /**
- * Google Gemini Client - Secondary AI provider for JARVIS.
+ * Google Gemini Client - Media/Vision AI for JARVIS.
  *
  * API: Google AI Studio (generativelanguage.googleapis.com)
- * Models: gemini-2.0-flash (fast), gemini-2.0-flash-thinking (reasoning)
+ * Model: gemini-2.0-flash
  *
- * Used as fallback when Kimi K2 is unavailable, or for specific tasks
- * like vision analysis, code generation, and multi-modal queries.
+ * ROLE: Media processing ONLY — NOT used for text chat.
+ *   - Image analysis (car plates, damage, payment receipts)
+ *   - Document OCR
+ *   - Video frame analysis
+ *
+ * Text chat uses: Kimi K2 (primary) -> Ollama (fallback)
  */
 
 const config = require('../config');
@@ -22,52 +26,67 @@ class GeminiClient {
   }
 
   /**
-   * Chat completion with Gemini.
+   * Analyze image with Gemini Vision.
+   * This is the primary use case for Gemini in JARVIS.
    */
-  async chat(messages, options = {}) {
-    const {
-      temperature = 0.7,
-      maxTokens = 4096,
-      systemPrompt = null,
-      model = null,
-    } = options;
+  async analyzeImage(imageBase64, prompt, mimeType = 'image/jpeg') {
+    return this._request([{
+      role: 'user',
+      parts: [
+        { inline_data: { mime_type: mimeType, data: imageBase64 } },
+        { text: prompt },
+      ],
+    }], {
+      systemPrompt: 'You are a vision assistant for JRV Car Rental, Seremban, Malaysia. Analyze images accurately. If you see a car license plate, read it precisely. If you see a receipt or payment proof, extract the amount and reference number.',
+    });
+  }
 
-    // Convert OpenAI-style messages to Gemini format
-    const geminiMessages = [];
-    const systemParts = [];
+  /**
+   * Analyze document image (IC, license, receipts).
+   */
+  async analyzeDocument(imageBase64, mimeType = 'image/jpeg') {
+    return this.analyzeImage(
+      imageBase64,
+      'Extract all text from this document. If it is an IC/MyKad, extract the name, IC number, and address. If it is a driving license, extract the name, license number, and expiry date. If it is a receipt, extract the amount, date, and reference number.',
+      mimeType
+    );
+  }
 
-    if (systemPrompt) {
-      systemParts.push({ text: systemPrompt });
-    }
+  /**
+   * Read car plate from image.
+   */
+  async readPlate(imageBase64, mimeType = 'image/jpeg') {
+    const result = await this.analyzeImage(
+      imageBase64,
+      'Read the car license plate number in this image. Return ONLY the plate number text, nothing else. Malaysian plates format: ABC 1234 or W 1234 ABC.',
+      mimeType
+    );
+    return {
+      plate: (result.content || '').replace(/[^A-Z0-9\s]/gi, '').trim(),
+      raw: result.content,
+      engine: 'gemini-vision',
+    };
+  }
 
-    for (const msg of messages) {
-      if (msg.role === 'system') {
-        systemParts.push({ text: msg.content });
-        continue;
-      }
+  /**
+   * Analyze car damage from image.
+   */
+  async analyzeDamage(imageBase64, mimeType = 'image/jpeg') {
+    return this.analyzeImage(
+      imageBase64,
+      'Analyze this car image for any visible damage, scratches, dents, or issues. Describe the severity (minor/moderate/severe) and exact location of each issue found. If no damage is visible, say so.',
+      mimeType
+    );
+  }
 
-      const role = msg.role === 'assistant' ? 'model' : 'user';
-      if (typeof msg.content === 'string') {
-        geminiMessages.push({ role, parts: [{ text: msg.content }] });
-      } else if (Array.isArray(msg.content)) {
-        const parts = msg.content.map(c => {
-          if (c.type === 'text') return { text: c.text };
-          if (c.type === 'image_url') {
-            const url = c.image_url?.url || '';
-            if (url.startsWith('data:')) {
-              const [meta, data] = url.split(',');
-              const mimeType = meta.match(/data:(.*?);/)?.[1] || 'image/jpeg';
-              return { inline_data: { mime_type: mimeType, data } };
-            }
-          }
-          return { text: JSON.stringify(c) };
-        });
-        geminiMessages.push({ role, parts });
-      }
-    }
+  /**
+   * Low-level Gemini API request.
+   */
+  async _request(contents, options = {}) {
+    const { systemPrompt = null, temperature = 0.4, maxTokens = 2048 } = options;
 
     const body = {
-      contents: geminiMessages,
+      contents,
       generationConfig: {
         temperature,
         maxOutputTokens: maxTokens,
@@ -75,16 +94,14 @@ class GeminiClient {
       },
     };
 
-    if (systemParts.length > 0) {
-      body.systemInstruction = { parts: systemParts };
+    if (systemPrompt) {
+      body.systemInstruction = { parts: [{ text: systemPrompt }] };
     }
-
-    const useModel = model || this.model;
 
     let lastError;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const url = `${this.baseUrl}/models/${useModel}:generateContent?key=${this.apiKey}`;
+        const url = `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`;
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -122,8 +139,11 @@ class GeminiClient {
 
         return {
           content,
+          description: content,
+          text: this._extractText(content),
           usage: data.usageMetadata,
-          model: useModel,
+          model: this.model,
+          engine: 'gemini-vision',
         };
       } catch (err) {
         lastError = err;
@@ -142,28 +162,11 @@ class GeminiClient {
   }
 
   /**
-   * Simple ask interface.
+   * Extract plate/reference text from AI response.
    */
-  async ask(prompt, systemPrompt = null) {
-    return this.chat(
-      [{ role: 'user', content: prompt }],
-      { systemPrompt }
-    );
-  }
-
-  /**
-   * Analyze image with Gemini Vision.
-   */
-  async analyzeImage(imageBase64, prompt, mimeType = 'image/jpeg') {
-    return this.chat([{
-      role: 'user',
-      content: [
-        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-        { type: 'text', text: prompt },
-      ],
-    }], {
-      systemPrompt: 'You are a vision assistant for JRV Car Rental. Analyze images accurately.',
-    });
+  _extractText(content) {
+    const textMatch = content.match(/text.*?[:\-]\s*["']?([\s\S]*?)["']?\s*$/i);
+    return textMatch ? textMatch[1].trim() : '';
   }
 
   async isAvailable() {

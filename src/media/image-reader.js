@@ -1,14 +1,16 @@
 const config = require('../config');
 const fs = require('fs');
 const path = require('path');
+const geminiClient = require('../ai/gemini-client');
 
 /**
  * Image Reader - Analyzes images using AI vision.
  *
  * Priority:
- * 1. Local LLaVA (Ollama on Jetson) — FREE, fast, private
- * 2. Kimi K2.5 Vision (cloud) — more powerful, paid
- * 3. Tesseract.js (OCR only) — always available, text extraction only
+ * 1. Gemini Vision (cloud) — primary for all media/vision
+ * 2. Local LLaVA (Ollama on Jetson) — FREE, fast, private
+ * 3. Kimi K2.5 Vision (cloud) — fallback
+ * 4. Tesseract.js (OCR only) — last resort, text extraction only
  */
 class ImageReader {
   constructor() {
@@ -36,21 +38,41 @@ class ImageReader {
     }
 
     try {
-      // Try local LLaVA first
-      return await this._localVision(imagePath, prompt);
-    } catch (localErr) {
-      console.warn('[ImageReader] Local vision failed:', localErr.message);
+      // Try Gemini Vision first (primary media engine)
+      return await this._geminiVision(imagePath, prompt);
+    } catch (geminiErr) {
+      console.warn('[ImageReader] Gemini vision failed:', geminiErr.message);
       try {
-        // Fallback to Kimi K2.5
-        return await this._kimiVision(imagePath, prompt);
-      } catch (cloudErr) {
-        console.warn('[ImageReader] Cloud vision failed:', cloudErr.message);
-        // Last resort: OCR only
-        return await this._ocrOnly(imagePath);
+        // Fallback to local LLaVA
+        return await this._localVision(imagePath, prompt);
+      } catch (localErr) {
+        console.warn('[ImageReader] Local vision failed:', localErr.message);
+        try {
+          // Fallback to Kimi Vision
+          return await this._kimiVision(imagePath, prompt);
+        } catch (cloudErr) {
+          console.warn('[ImageReader] Kimi vision failed:', cloudErr.message);
+          // Last resort: OCR only
+          return await this._ocrOnly(imagePath);
+        }
       }
     } finally {
       if (cleanup && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
     }
+  }
+
+  async _geminiVision(imagePath, prompt) {
+    if (!geminiClient.apiKey || geminiClient.apiKey === 'placeholder') {
+      throw new Error('Gemini API key not configured');
+    }
+    const imageBase64 = fs.readFileSync(imagePath).toString('base64');
+    const mimeType = imagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const result = await geminiClient.analyzeImage(imageBase64, prompt, mimeType);
+    return {
+      description: result.content,
+      text: result.text || this._extractText(result.content),
+      engine: 'gemini-vision',
+    };
   }
 
   async _localVision(imagePath, prompt) {
@@ -143,8 +165,23 @@ class ImageReader {
 
   /**
    * Read a car plate from an image.
+   * Tries Gemini dedicated plate reader first, falls back to generic analyze.
    */
   async readPlate(image) {
+    const imageBase64 = Buffer.isBuffer(image)
+      ? image.toString('base64')
+      : fs.readFileSync(image).toString('base64');
+
+    // Try Gemini plate reader first (purpose-built)
+    if (geminiClient.apiKey && geminiClient.apiKey !== 'placeholder') {
+      try {
+        return await geminiClient.readPlate(imageBase64);
+      } catch (err) {
+        console.warn('[ImageReader] Gemini plate read failed:', err.message);
+      }
+    }
+
+    // Fallback to generic analyze chain
     const result = await this.analyze(image,
       'Read the car license plate number in this image. Return ONLY the plate number, nothing else.');
     return {
@@ -155,8 +192,23 @@ class ImageReader {
 
   /**
    * Analyze car damage from an image.
+   * Tries Gemini dedicated damage analyzer first, falls back to generic analyze.
    */
   async analyzeDamage(image) {
+    const imageBase64 = Buffer.isBuffer(image)
+      ? image.toString('base64')
+      : fs.readFileSync(image).toString('base64');
+
+    // Try Gemini damage analyzer first (purpose-built)
+    if (geminiClient.apiKey && geminiClient.apiKey !== 'placeholder') {
+      try {
+        return await geminiClient.analyzeDamage(imageBase64);
+      } catch (err) {
+        console.warn('[ImageReader] Gemini damage analysis failed:', err.message);
+      }
+    }
+
+    // Fallback to generic analyze chain
     return this.analyze(image,
       'Analyze this car image for any visible damage, scratches, dents, or issues. Describe the severity and location of each issue found.');
   }

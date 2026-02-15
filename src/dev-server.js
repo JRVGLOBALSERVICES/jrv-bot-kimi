@@ -324,7 +324,7 @@ async function start() {
     console.log(`[Dev Server] JARVIS running at http://localhost:${PORT}`);
     console.log('[Dev Server] Open in browser to test chat');
     console.log('[Dev Server] Admin phones:', policies.admins.list.map(a => `${a.name}(${a.phone})`).join(', '));
-    console.log(`[Dev Server] AI: Kimi ${aiRouter.kimiAvailable ? 'OK' : 'OFFLINE'} | Gemini ${aiRouter.geminiAvailable ? 'OK' : 'OFFLINE'} | Local ${aiRouter.localAvailable ? 'OK' : 'OFFLINE'}`);
+    console.log(`[Dev Server] AI: Kimi ${aiRouter.kimiAvailable ? 'OK' : 'OFFLINE'} | Local ${aiRouter.localAvailable ? 'OK' : 'OFFLINE'}`);
     console.log(`[Dev Server] Voice: ${jarvisVoice.getProfile().name} (${jarvisVoice.getProfile().style})`);
   });
 }

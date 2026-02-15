@@ -488,7 +488,7 @@ class JarvisBrain {
         const cache = syncEngine.getCache();
         const schedStats = require('./scheduler').getStats();
         response.text = `*JARVIS Status*\n\`\`\`\n` +
-          `AI: Local ${stats.local} | Cloud ${stats.cloud} | Gemini ${stats.gemini} | Cache ${stats.cacheHits}\n` +
+          `AI: Local ${stats.local} | Cloud ${stats.cloud} | Cache ${stats.cacheHits}\n` +
           `Fallback: ${stats.fallback} | Tools: ${stats.toolCalls}\n` +
           `Chats: ${convStats.activeConversations}\n` +
           `Cars: ${cache.cars.length} | Bookings: ${cache.agreements.length}\n` +

@@ -1,5 +1,4 @@
 const kimiClient = require('./kimi-client');
-const geminiClient = require('./gemini-client');
 const localClient = require('./local-client');
 const { TOOLS, executeTool } = require('./kimi-tools');
 const syncEngine = require('../supabase/services/sync');
@@ -7,18 +6,14 @@ const policies = require('../brain/policies');
 const responseCache = require('../utils/cache');
 
 /**
- * AI Router - Routes messages to the best available AI engine.
+ * AI Router - Routes text messages to the best AI engine.
  *
- * Priority chain:
- *   Tier 1 (Local - FREE):  Simple chat, FAQ, greetings (Ollama/Llama)
- *   Tier 2 (Cloud - Kimi):  Complex queries with tool calling for live data
- *   Tier 3 (Cloud - Gemini): Fallback cloud AI when Kimi unavailable
+ * Text/Chat routing:
+ *   Kimi K2 (primary cloud) — tool calling, complex queries
+ *   Ollama  (fallback local) — simple chat, FAQ, greetings
  *
- * Features:
- *   - Response caching for common queries
- *   - Automatic fallback between engines
- *   - Tool calling via Kimi K2
- *   - Stats tracking per engine
+ * Gemini is NOT used for text. It is reserved for media only
+ * (image analysis, vision) — handled in media/image-reader.js.
  */
 
 const CLOUD_TRIGGERS = [
@@ -37,26 +32,26 @@ class AIRouter {
   constructor() {
     this.localAvailable = false;
     this.kimiAvailable = false;
-    this.geminiAvailable = false;
-    this.stats = { local: 0, cloud: 0, gemini: 0, fallback: 0, toolCalls: 0, cacheHits: 0 };
+    this.stats = { local: 0, cloud: 0, fallback: 0, toolCalls: 0, cacheHits: 0 };
   }
 
   async init() {
-    // Check all engines in parallel
-    const [localOk, kimiOk, geminiOk] = await Promise.all([
+    const [localOk, kimiOk] = await Promise.all([
       localClient.isAvailable(),
       kimiClient.isAvailable(),
-      geminiClient.isAvailable(),
     ]);
 
     this.localAvailable = localOk;
     this.kimiAvailable = kimiOk;
-    this.geminiAvailable = geminiOk;
 
-    console.log(`[AI Router] Local: ${localOk ? 'OK' : 'OFFLINE'} | Kimi K2: ${kimiOk ? 'OK' : 'OFFLINE'} | Gemini: ${geminiOk ? 'OK' : 'OFFLINE'}`);
+    console.log(`[AI Router] Kimi K2: ${kimiOk ? 'OK' : 'OFFLINE'} | Ollama: ${localOk ? 'OK' : 'OFFLINE'}`);
 
-    if (!kimiOk && !geminiOk) {
-      console.warn('[AI Router] No cloud AI available. Set KIMI_API_KEY or GEMINI_API_KEY in .env');
+    if (!kimiOk) {
+      console.warn('[AI Router] Kimi K2 unavailable. Set KIMI_API_KEY in .env');
+      console.warn('[AI Router]   Get key: https://platform.moonshot.ai');
+      if (localOk) {
+        console.log('[AI Router] Ollama will handle all requests as fallback');
+      }
     }
   }
 
@@ -106,7 +101,7 @@ class AIRouter {
     try {
       let result;
 
-      // Try Kimi K2 (primary cloud with tool calling)
+      // Kimi K2 — primary cloud with tool calling
       if ((tier === 'cloud' || !this.localAvailable) && this.kimiAvailable) {
         this.stats.cloud++;
         result = await kimiClient.chatWithTools(
@@ -116,20 +111,14 @@ class AIRouter {
         );
         result = { ...result, tier: 'cloud' };
       }
-      // Try Gemini (secondary cloud, no tool calling)
-      else if ((tier === 'cloud' || !this.localAvailable) && this.geminiAvailable) {
-        this.stats.gemini++;
-        result = await geminiClient.chat(messages, { systemPrompt: fullSystemPrompt });
-        result = { ...result, tier: 'gemini' };
-      }
-      // Use local
+      // Ollama — local fallback
       else if (this.localAvailable) {
         this.stats.local++;
         result = await localClient.chat(messages, { systemPrompt: fullSystemPrompt });
         result = { ...result, tier: tier === 'cloud' ? 'fallback-local' : 'local' };
       }
       else {
-        throw new Error('No AI engines available. Set KIMI_API_KEY, GEMINI_API_KEY, or install Ollama.');
+        throw new Error('No AI engines available. Set KIMI_API_KEY or install Ollama.');
       }
 
       // Cache the result
@@ -142,23 +131,12 @@ class AIRouter {
     } catch (err) {
       console.error(`[AI Router] ${tier} failed:`, err.message);
 
-      // Fallback chain: Kimi → Gemini → Local
-      if (tier !== 'gemini' && this.geminiAvailable) {
-        try {
-          this.stats.fallback++;
-          const result = await geminiClient.chat(messages, { systemPrompt: fullSystemPrompt });
-          return { ...result, tier: 'fallback-gemini' };
-        } catch (geminiErr) {
-          console.error('[AI Router] Gemini fallback failed:', geminiErr.message);
-        }
-      }
-
-      if (tier !== 'local' && this.localAvailable) {
+      // Fallback: Kimi failed → try Local, Local failed → try Kimi
+      if (tier === 'cloud' && this.localAvailable) {
         this.stats.fallback++;
         const result = await localClient.chat(messages, { systemPrompt: fullSystemPrompt });
         return { ...result, tier: 'fallback-local' };
       }
-
       if (tier === 'local' && this.kimiAvailable) {
         this.stats.fallback++;
         const result = await kimiClient.chatWithTools(messages, TOOLS, executeTool, { systemPrompt: fullSystemPrompt });
@@ -196,7 +174,6 @@ class AIRouter {
     return {
       ...this.stats,
       kimiStats: kimiClient.getStats(),
-      geminiStats: geminiClient.getStats(),
       cacheStats: responseCache.getStats(),
     };
   }
