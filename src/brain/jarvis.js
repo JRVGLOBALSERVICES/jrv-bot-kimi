@@ -418,7 +418,7 @@ class JarvisBrain {
     if (lower === '/fleet-report' && isAdmin) return { cmd: 'fleet-report' };
     if (lower === '/expiring' && isAdmin) return { cmd: 'expiring' };
     if (lower === '/overdue' && isAdmin) return { cmd: 'overdue' };
-    if (lower === '/help') return { cmd: 'help', isAdmin, isBoss };
+    if (lower === '/help' || lower === '/commands' || lower === '/cmd') return { cmd: 'help', isAdmin, isBoss };
 
     return null;
   }
@@ -576,40 +576,71 @@ class JarvisBrain {
         break;
       }
       case 'help': {
-        response.text = `*JARVIS Commands*\n\`\`\`\n` +
-          `/cars -- Fleet status\n` +
-          `/available -- Available cars\n` +
-          `/bookings -- Active bookings\n` +
-          `/pricing -- Rate card\n` +
-          `/book -- Start booking\n` +
-          `/search <query> -- Search\n` +
-          `/reminders -- Your reminders\n` +
-          `/remind <text> -- Set reminder\n` +
+        response.text = `*JARVIS Commands*\n\n`;
+
+        response.text += `*General:*\n\`\`\`\n` +
+          `/commands    All commands\n` +
+          `/cars        Fleet status\n` +
+          `/available   Available cars\n` +
+          `/bookings    Active bookings\n` +
+          `/pricing     Rate card\n` +
+          `/book        Start booking\n` +
+          `/search <q>  Search cars/customers\n` +
+          `/reminders   Your reminders\n` +
+          `/remind <t>  Set a reminder\n` +
           `\`\`\`\n`;
+
         if (command.isAdmin) {
-          response.text += `\n*Admin Commands:*\n\`\`\`\n` +
-            `/report -- Daily summary\n` +
-            `/report1-6 -- Specific reports\n` +
-            `/fleet-report -- Fleet validation\n` +
-            `/earnings -- Revenue\n` +
-            `/expiring -- Expiring rentals\n` +
-            `/overdue -- Overdue returns\n` +
-            `/voice <profile> -- Change voice\n` +
-            `/voice list -- List voices\n` +
-            `/status -- System health\n` +
+          response.text += `\n*Admin Reports:*\n\`\`\`\n` +
+            `/report      Daily summary\n` +
+            `/report1     Sorted by time\n` +
+            `/report2     Sorted by contact\n` +
+            `/report3     Sorted by timeslot\n` +
+            `/report4     Follow-up report\n` +
+            `/report5     Available cars report\n` +
+            `/report6     Full summary\n` +
+            `/fleet-report Fleet validation\n` +
+            `/earnings    Revenue report\n` +
+            `/expiring    Expiring in 3 days\n` +
+            `/overdue     Overdue returns\n` +
+            `\`\`\`\n`;
+
+          response.text += `\n*Admin Tools:*\n\`\`\`\n` +
+            `/voice list  List voice profiles\n` +
+            `/voice <id>  Change voice\n` +
+            `/status      System health\n` +
             `\`\`\`\n`;
         }
+
         if (command.isBoss) {
-          response.text += `\n*Boss Tools:*\n\`\`\`\n` +
-            `/tool help -- All power tools\n` +
-            `/tool site <desc> -- Generate site\n` +
-            `/tool broadcast <msg> -- Message all\n` +
-            `/tool export <type> -- Export data\n` +
-            `/tool config -- Show config\n` +
-            `/tool system -- System info\n` +
+          response.text += `\n*Boss Power Tools:*\n\`\`\`\n` +
+            `/tool help         All tools\n` +
+            `/tool pc           PC performance\n` +
+            `/tool site <desc>  Generate website\n` +
+            `/tool broadcast    Message all admins\n` +
+            `/tool export       Export data\n` +
+            `/tool config       Show config\n` +
+            `/tool set <k> <v>  Change setting\n` +
+            `/tool query <t>    Query data\n` +
+            `/tool system       System info\n` +
+            `\`\`\`\n`;
+
+          response.text += `\n*Boss Safety:*\n\`\`\`\n` +
+            `/tool backups      List backups\n` +
+            `/tool trash        List trashed files\n` +
+            `/tool restore <f>  Restore backup\n` +
+            `/tool delete <f>   Delete from trash\n` +
+            `/tool purge-trash  Empty trash\n` +
+            `/tool safety-log   Audit log\n` +
+            `\`\`\`\n`;
+
+          response.text += `\n*Boss Reminders:*\n\`\`\`\n` +
+            `/tool reminder-all     All reminders\n` +
+            `/tool clear-reminders  Clear by phone\n` +
             `\`\`\`\n`;
         }
-        response.text += `\nOr chat naturally in Malay, English, Chinese, or Tamil!`;
+
+        response.text += `\nOr just chat naturally in Malay, English, Chinese, or Tamil!`;
         break;
       }
     }
