@@ -6,9 +6,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/dev-server.js",
+    "test": "node src/test-connection.js && node src/test-ai.js && node src/test-location.js && node src/test-media.js",
     "test:connection": "node src/test-connection.js",
-    "test:voice": "node src/test-voice.js",
-    "test:ai": "node src/test-ai.js"
+    "test:ai": "node src/test-ai.js",
+    "test:location": "node src/test-location.js",
+    "test:media": "node src/test-media.js",
+    "test:voice": "node src/test-voice.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
