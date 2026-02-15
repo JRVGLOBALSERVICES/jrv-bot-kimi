@@ -354,14 +354,14 @@ class JarvisBrain {
         const car = await fleetService.getCarByPlate(plate);
         if (car) {
           if (isAdmin) {
-            response.text += `\n\n*Car Found:*\n\`\`\`${car.make} ${car.model} ${car.year || ''}\nPlate: ${car.car_plate}\nStatus: ${car.status}\`\`\``;
+            response.text += `\n\n*Car Found:*\n\`\`\`${car._carName || car.body_type || ''} ${car.year || ''}\nPlate: ${car.plate_number}\nStatus: ${car.status}\`\`\``;
             const bookings = await agreementsService.getAgreementsByPlate(plate);
             if (bookings.length > 0) {
               const latest = bookings[0];
-              response.text += `\n\n*Current Booking:*\n\`\`\`${latest.customer_name}\n${latest.start_date} -> ${latest.end_date}\`\`\``;
+              response.text += `\n\n*Current Booking:*\n\`\`\`${latest.customer_name}\n${(latest.date_start || '').slice(0, 10)} -> ${(latest.date_end || '').slice(0, 10)}\`\`\``;
             }
           } else {
-            response.text += `\n\n*Car:* ${car.make} ${car.model}`;
+            response.text += `\n\n*Car:* ${car._carName || car.body_type || ''}`;
           }
         }
       }
@@ -517,7 +517,7 @@ class JarvisBrain {
         } else {
           response.text = `*Active Bookings (${active.length})*\n\`\`\`\n` +
             active.map(a =>
-              `${isAdmin ? a.car_plate + ' ' : ''}${a.customer_name}\n  ${a.start_date} -> ${a.end_date} [${a.status}]`
+              `${isAdmin ? a.plate_number + ' ' : ''}${a.customer_name}\n  ${(a.date_start || '').slice(0, 10)} -> ${(a.date_end || '').slice(0, 10)} [${a.status}]`
             ).join('\n') +
             `\n\`\`\``;
         }
@@ -529,12 +529,12 @@ class JarvisBrain {
         const parts = [];
         if (cars.length) {
           parts.push(`*Cars:*\n\`\`\`\n${cars.map(c =>
-            isAdmin ? `${c.car_plate} ${c.make} ${c.model}` : `${c.make} ${c.model}`
+            isAdmin ? `${c.plate_number} ${c._carName || c.body_type || ''}` : `${c._carName || c.body_type || ''}`
           ).join('\n')}\n\`\`\``);
         }
         if (bookings.length) {
           parts.push(`*Bookings:*\n\`\`\`\n${bookings.map(b =>
-            isAdmin ? `${b.customer_name} - ${b.car_plate}` : `${b.customer_name}`
+            isAdmin ? `${b.customer_name} - ${b.plate_number}` : `${b.customer_name}`
           ).join('\n')}\n\`\`\``);
         }
         response.text = parts.length ? parts.join('\n') : `*Search*\n\`\`\`No results for "${command.arg}"\`\`\``;
@@ -559,7 +559,7 @@ class JarvisBrain {
           response.text = '*Expiring Rentals*\n```None expiring in next 3 days```';
         } else {
           response.text = `*Expiring in 3 Days (${expiring.length})*\n\`\`\`\n` +
-            expiring.map(a => `${a.car_plate} - ${a.customer_name} (ends ${a.end_date})\n  Phone: ${a.customer_phone}`).join('\n') +
+            expiring.map(a => `${a.plate_number} - ${a.customer_name} (ends ${(a.date_end || '').slice(0, 10)})\n  Phone: ${a.mobile || 'N/A'}`).join('\n') +
             `\n\`\`\``;
         }
         break;
@@ -570,7 +570,7 @@ class JarvisBrain {
           response.text = '*Overdue Returns*\n```None overdue - all good!```';
         } else {
           response.text = `*Overdue Returns (${overdue.length})*\n\`\`\`\n` +
-            overdue.map(a => `${a.car_plate} - ${a.customer_name}\n  Was due: ${a.end_date}\n  Phone: ${a.customer_phone}`).join('\n') +
+            overdue.map(a => `${a.plate_number} - ${a.customer_name}\n  Was due: ${(a.date_end || '').slice(0, 10)}\n  Phone: ${a.mobile || 'N/A'}`).join('\n') +
             `\n\`\`\``;
         }
         break;
@@ -681,7 +681,7 @@ class JarvisBrain {
           parts.push(`Total spent: RM${customerHistory.totalSpent.toFixed(2)}`);
           if (customerHistory.activeRentals.length > 0) {
             const active = customerHistory.activeRentals[0];
-            parts.push(`ACTIVE rental: ${active.car_description || active.car_model || 'N/A'} ending ${active.end_date}`);
+            parts.push(`ACTIVE rental: ${active.car_type || 'N/A'} ending ${(active.date_end || '').slice(0, 10)}`);
           }
         }
       } else {
@@ -705,7 +705,7 @@ class JarvisBrain {
       if (!isAdmin && avail.length > 0) {
         parts.push(`Available cars (NO PLATES to customer):`);
         for (const car of avail) {
-          parts.push(`  ${car.make} ${car.model} ${car.color || ''} - RM${car.daily_rate}/day`);
+          parts.push(`  ${car._carName || car.body_type || ''} ${car.color || ''} - RM${car.daily_price}/day`);
         }
       }
     }

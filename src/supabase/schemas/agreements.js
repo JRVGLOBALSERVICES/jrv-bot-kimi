@@ -2,29 +2,32 @@
  * Schema: agreements table
  * Every rental booking/agreement.
  *
- * Columns:
- *   id (int8)                - Primary key
- *   agreement_number (text)  - e.g. "JRV-2024-001"
- *   customer_id (int8)       - FK to customers
- *   customer_name (text)     - Denormalized for quick access
- *   customer_phone (text)    - Denormalized
- *   car_id (int8)            - FK to cars
- *   car_plate (text)         - Denormalized
- *   car_description (text)   - e.g. "Perodua Axia 2023 White"
- *   start_date (date)
- *   end_date (date)
- *   actual_return_date (date)
- *   pickup_location (text)
- *   return_location (text)
- *   daily_rate (numeric)     - Agreed rate
- *   total_amount (numeric)   - Total rental amount
- *   deposit_amount (numeric) - Deposit collected
- *   deposit_status (text)    - "collected", "refunded", "partial", "forfeited"
- *   payment_method (text)    - "cash", "bank_transfer", "card"
- *   payment_status (text)    - "pending", "paid", "partial", "overdue"
- *   status (text)            - "New", "Editted", "Extended", "Completed", "Cancelled", "Deleted"
- *   notes (text)
- *   created_by (text)        - Admin who created
+ * Actual DB Columns:
+ *   id (uuid)               - Primary key
+ *   car_id (uuid)           - FK to cars
+ *   plate_number (text)     - Denormalized car plate
+ *   car_type (text)         - e.g. "Perodua Bezza", "Toyota Vios"
+ *   catalog_id (uuid)       - FK to car_catalog
+ *   customer_name (text)
+ *   mobile (text)           - Customer phone number
+ *   id_number (text)        - IC/Passport number
+ *   date_start (timestamptz)
+ *   date_end (timestamptz)
+ *   booking_duration_days (int)
+ *   total_price (numeric)   - Total rental amount
+ *   deposit_price (numeric) - Deposit collected
+ *   deposit_refunded (bool)
+ *   paid (numeric)          - Amount paid
+ *   booking_payment (text)
+ *   status (text)           - "New", "Editted", "Extended", "Completed", "Cancelled", "Deleted"
+ *   creator_email (text)
+ *   editor_email (text)
+ *   agreement_url (text)    - PDF URL
+ *   whatsapp_url (text)
+ *   ic_url (text)
+ *   remarks (text)
+ *   start_mileage (int)
+ *   eligible_for_event (bool)
  *   created_at (timestamptz)
  *   updated_at (timestamptz)
  */
@@ -33,24 +36,22 @@ const TABLE = 'agreements';
 
 const FIELDS = {
   ALL: '*',
-  ACTIVE: 'id, agreement_number, customer_name, customer_phone, car_plate, car_description, start_date, end_date, status, daily_rate, total_amount',
-  SUMMARY: 'id, agreement_number, customer_name, car_plate, start_date, end_date, status, total_amount',
-  FINANCIAL: 'id, agreement_number, customer_name, daily_rate, total_amount, deposit_amount, deposit_status, payment_status, payment_method',
+  ACTIVE: 'id, customer_name, mobile, plate_number, car_type, date_start, date_end, status, total_price',
+  SUMMARY: 'id, customer_name, plate_number, date_start, date_end, status, total_price',
+  FINANCIAL: 'id, customer_name, total_price, deposit_price, paid, booking_payment',
 };
 
 // Status values match DB (capitalized)
-// Car is RENTED when agreement is: New, Editted (end_date >= today), Extended
-// Car is AVAILABLE when agreement is: Completed, Editted (end_date < today), Cancelled, Deleted
 const STATUS = {
-  NEW: 'New',            // Active rental
-  EDITTED: 'Editted',   // Could be active or completed — check end_date
-  EXTENDED: 'Extended',  // Active rental (extended)
+  NEW: 'New',
+  EDITTED: 'Editted',
+  EXTENDED: 'Extended',
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
   DELETED: 'Deleted',
 };
 
-// Statuses that mean car is currently rented (before checking end_date)
+// Statuses that mean car is currently rented (before checking date_end)
 const ACTIVE_STATUSES = ['New', 'Editted', 'Extended'];
 
 module.exports = { TABLE, FIELDS, STATUS, ACTIVE_STATUSES };

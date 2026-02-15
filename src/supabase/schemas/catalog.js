@@ -1,24 +1,30 @@
 /**
- * Schema: catalog table
+ * Schema: car_catalog table
  * Master list of car makes and models offered by JRV.
  *
- * Columns:
- *   id (int8)              - Primary key
+ * Actual DB Columns:
+ *   id (uuid)              - Primary key
  *   make (text)            - e.g. "Perodua", "Proton", "Toyota"
  *   model (text)           - e.g. "Axia", "Saga", "Vios"
- *   category (text)        - "economy", "standard", "premium", "suv", "mpv"
- *   base_daily_rate (numeric)
- *   description (text)     - Marketing description
- *   image_url (text)       - Catalog image
+ *   variant (text)
+ *   year (text)
+ *   category (text)
+ *   seats (int)
+ *   transmission (text)
+ *   fuel_type (text)
+ *   features (text)
+ *   default_images (text)  - Default image URL
  *   is_active (bool)
+ *   legacy_id (text)
  *   created_at (timestamptz)
+ *   updated_at (timestamptz)
  */
 
-const TABLE = 'catalog';
+const TABLE = 'car_catalog';
 
 const FIELDS = {
   ALL: '*',
-  LIST: 'id, make, model, category, base_daily_rate, image_url',
+  LIST: 'id, make, model, category, default_images',
 };
 
 module.exports = { TABLE, FIELDS };

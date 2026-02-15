@@ -125,10 +125,10 @@ class NotificationManager {
   async onOverdueReturn(agreement) {
     const msg = `*🚨 OVERDUE RETURN*\n` +
       `\`\`\`\n` +
-      `Car: ${agreement.car_plate}\n` +
+      `Car: ${agreement.plate_number}\n` +
       `Customer: ${agreement.customer_name}\n` +
-      `Phone: ${agreement.customer_phone}\n` +
-      `Was due: ${agreement.end_date}\n` +
+      `Phone: ${agreement.mobile || 'N/A'}\n` +
+      `Was due: ${(agreement.date_end || '').slice(0, 10)}\n` +
       `\`\`\`\n` +
       `Contact customer immediately.`;
 
@@ -141,9 +141,9 @@ class NotificationManager {
   async onExpiringRental(agreement, daysLeft) {
     const msg = `*⏰ Rental Expiring*\n` +
       `\`\`\`\n` +
-      `Car: ${agreement.car_plate}\n` +
+      `Car: ${agreement.plate_number}\n` +
       `Customer: ${agreement.customer_name}\n` +
-      `Ends: ${agreement.end_date} (${daysLeft} days)\n` +
+      `Ends: ${(agreement.date_end || '').slice(0, 10)} (${daysLeft} days)\n` +
       `\`\`\``;
 
     await this.notifySuperadmin(msg);
@@ -156,9 +156,9 @@ class NotificationManager {
     const msg = `*📋 New Booking*\n` +
       `\`\`\`\n` +
       `Customer: ${agreement.customer_name}\n` +
-      `Car: ${agreement.car_plate || agreement.car_description}\n` +
-      `Period: ${agreement.start_date} → ${agreement.end_date}\n` +
-      `Amount: RM${agreement.total_amount || 'TBD'}\n` +
+      `Car: ${agreement.plate_number || agreement.car_type}\n` +
+      `Period: ${(agreement.date_start || '').slice(0, 10)} → ${(agreement.date_end || '').slice(0, 10)}\n` +
+      `Amount: RM${agreement.total_price || 'TBD'}\n` +
       `\`\`\``;
 
     await this.notifySuperadmin(msg);

@@ -47,11 +47,12 @@ class CustomerFlows {
 
     if (activeRentals.length > 0) {
       const rental = activeRentals[0];
-      const daysLeft = daysBetween(todayMYT(), rental.end_date);
+      const endDate = (rental.date_end || rental.end_date || '').slice(0, 10);
+      const daysLeft = daysBetween(todayMYT(), endDate);
 
       text += `\n*Active Rental:*\n\`\`\`\n`;
-      text += `Car: ${rental.car_description || rental.car_model || 'N/A'}\n`;
-      text += `Until: ${rental.end_date}`;
+      text += `Car: ${rental.car_type || 'N/A'}\n`;
+      text += `Until: ${endDate}`;
       if (daysLeft <= 3) {
         text += ` (${daysLeft} days left!)`;
       }
@@ -86,7 +87,7 @@ class CustomerFlows {
     // Group by category
     const grouped = {};
     for (const car of available) {
-      const cat = car.category || 'other';
+      const cat = car.body_type || 'other';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(car);
     }
@@ -96,7 +97,7 @@ class CustomerFlows {
       text += `*${cat.charAt(0).toUpperCase() + cat.slice(1)}*\n\`\`\`\n`;
       for (const car of cars) {
         // NO PLATES for customers - model and color only
-        text += `${car.make} ${car.model}`;
+        text += `${car._carName || car.body_type || ''}`;
         if (car.color) text += ` (${car.color})`;
         if (car.year) text += ` ${car.year}`;
         text += `\n`;
@@ -125,9 +126,9 @@ class CustomerFlows {
 
     let text = `*Available Cars (${available.length})*\n\`\`\`\n`;
     for (const car of available) {
-      text += `${car.car_plate} | ${car.make} ${car.model}`;
+      text += `${car.plate_number} | ${car._carName || car.body_type || ''}`;
       if (car.color) text += ` (${car.color})`;
-      text += ` | RM${car.daily_rate}/day\n`;
+      text += ` | RM${car.daily_price}/day\n`;
     }
     text += `\`\`\``;
     return text;
@@ -172,14 +173,15 @@ class CustomerFlows {
    * Extension request flow.
    */
   extensionInfo(currentRental, extraDays = 1, language = 'en') {
-    const cat = currentRental.category || 'economy';
+    const cat = currentRental.body_type || 'economy';
     const pricing = policies.getCategoryPricing(cat);
-    const dailyRate = pricing ? pricing.daily : (currentRental.daily_rate || 80);
+    const dailyRate = pricing ? pricing.daily : (currentRental.daily_price || 80);
     const extensionCost = dailyRate * extraDays;
+    const endDate = (currentRental.date_end || currentRental.end_date || '').slice(0, 10);
 
     let text = `*Rental Extension*\n`;
     text += `\`\`\`\n`;
-    text += `Current end: ${currentRental.end_date}\n`;
+    text += `Current end: ${endDate}\n`;
     text += `Extension: ${extraDays} day(s)\n`;
     text += `Rate: RM${dailyRate}/day\n`;
     text += `Additional cost: RM${extensionCost}\n`;
@@ -200,7 +202,7 @@ class CustomerFlows {
     }
 
     text += `\`\`\`\n`;
-    text += `Return date: ${agreement.end_date}\n`;
+    text += `Return date: ${(agreement.date_end || agreement.end_date || '').slice(0, 10)}\n`;
     text += `\n`;
     text += `Checklist:\n`;
     text += `☐ Same fuel level as pickup\n`;
@@ -221,7 +223,7 @@ class CustomerFlows {
     if (language === 'ms') {
       text = `*Sewa Anda Hampir Tamat*\n\n`;
       text += `Hai ${agreement.customer_name}!\n`;
-      text += `\`\`\`\nKereta anda perlu dipulang dalam ${daysLeft} hari (${agreement.end_date}).\`\`\`\n\n`;
+      text += `\`\`\`\nKereta anda perlu dipulang dalam ${daysLeft} hari (${(agreement.date_end || agreement.end_date || '').slice(0, 10)}).\`\`\`\n\n`;
       text += `Adakah anda ingin:\n`;
       text += `1. Sambung sewa (extension)\n`;
       text += `2. Pulang kereta\n\n`;
@@ -229,7 +231,7 @@ class CustomerFlows {
     } else {
       text = `*Your Rental is Expiring*\n\n`;
       text += `Hi ${agreement.customer_name}!\n`;
-      text += `\`\`\`\nYour car is due back in ${daysLeft} day(s) (${agreement.end_date}).\`\`\`\n\n`;
+      text += `\`\`\`\nYour car is due back in ${daysLeft} day(s) (${(agreement.date_end || agreement.end_date || '').slice(0, 10)}).\`\`\`\n\n`;
       text += `Would you like to:\n`;
       text += `1. Extend your rental\n`;
       text += `2. Return the car\n\n`;
@@ -242,7 +244,7 @@ class CustomerFlows {
    * Cancellation confirmation.
    */
   cancellationInfo(agreement, language = 'en') {
-    const startDate = new Date(agreement.start_date);
+    const startDate = new Date(agreement.date_start || agreement.start_date);
     const now = new Date();
     const hoursUntilStart = (startDate - now) / (1000 * 60 * 60);
 
@@ -252,7 +254,7 @@ class CustomerFlows {
       fee = 50;
       feeNote = 'Late cancellation fee: RM50';
     } else if (hoursUntilStart <= 0) {
-      fee = policies.getCategoryPricing(agreement.category)?.daily || 80;
+      fee = policies.getCategoryPricing(agreement.body_type || 'economy')?.daily || 80;
       feeNote = `No-show: Full day charge RM${fee}`;
     } else {
       feeNote = 'Free cancellation (more than 24h before pickup)';
@@ -260,7 +262,7 @@ class CustomerFlows {
 
     let text = `*Cancellation*\n`;
     text += `\`\`\`\n`;
-    text += `Booking: ${agreement.agreement_number || agreement.id}\n`;
+    text += `Booking: ${agreement.id}\n`;
     text += `${feeNote}\n`;
     text += `\`\`\`\n`;
     text += `\n${policies.cancellation.note}`;

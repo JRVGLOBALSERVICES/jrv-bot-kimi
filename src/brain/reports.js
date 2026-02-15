@@ -1,26 +1,14 @@
 const { fleetService, agreementsService, dataStoreService } = require('../supabase/services');
-const { validateFleetStatus } = require('../utils/validators');
+const { validateFleetStatus, getEndDate, getStartDate } = require('../utils/validators');
 const { formatMYT, todayMYT, daysBetween, nowMYT } = require('../utils/time');
 const policies = require('./policies');
 
 /**
- * Report Generator - All 6 report formats from bot_data_store.
- *
- * Report 1: Sorted by Time (chronological rental timeline)
- * Report 2: Sorted by Contact (grouped by customer)
- * Report 3: Sorted by Timeslot (pickups/returns today)
- * Report 4: Follow-up Report (expiring, overdue, pending payment)
- * Report 5: Available Cars Report (what's free today)
- * Report 6: Summary Report (daily overview)
- *
- * Format: *bold headers* + ```monospace data```
- * Dates: Malaysia Time (MYT = UTC+8)
+ * Report Generator
+ * DB columns: agreements use plate_number, mobile, date_start, date_end, total_price, car_type
+ * Cars use plate_number, body_type, daily_price, _carName (enriched from catalog)
  */
 class ReportGenerator {
-  /**
-   * Report 1: Sorted by Time
-   * All active bookings sorted chronologically by end date.
-   */
   async sortedByTime() {
     const agreements = await agreementsService.getActiveAgreements();
     const today = todayMYT();
@@ -33,16 +21,17 @@ class ReportGenerator {
       return report;
     }
 
-    // Sort by end date ascending
-    const sorted = [...agreements].sort((a, b) => new Date(a.end_date) - new Date(b.end_date));
+    const sorted = [...agreements].sort((a, b) => new Date(getEndDate(a) || 0) - new Date(getEndDate(b) || 0));
 
     report += `\`\`\`\n`;
     for (const a of sorted) {
-      const daysLeft = daysBetween(today, a.end_date);
+      const endDate = (getEndDate(a) || '').slice(0, 10);
+      const startDate = (getStartDate(a) || '').slice(0, 10);
+      const daysLeft = daysBetween(today, endDate);
       const status = daysLeft < 0 ? '🚨 OVERDUE' : daysLeft <= 2 ? '⚠️ EXPIRING' : '✅';
-      report += `${a.car_plate} | ${a.customer_name}\n`;
-      report += `  ${a.start_date} → ${a.end_date} (${daysLeft}d) ${status}\n`;
-      if (a.customer_phone) report += `  📱 ${a.customer_phone}\n`;
+      report += `${a.plate_number} | ${a.customer_name}\n`;
+      report += `  ${startDate} → ${endDate} (${daysLeft}d) ${status}\n`;
+      if (a.mobile) report += `  📱 ${a.mobile}\n`;
       report += `\n`;
     }
     report += `\`\`\``;
@@ -51,10 +40,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Report 2: Sorted by Contact
-   * Bookings grouped by customer (phone number).
-   */
   async sortedByContact() {
     const agreements = await agreementsService.getActiveAgreements();
 
@@ -66,11 +51,10 @@ class ReportGenerator {
       return report;
     }
 
-    // Group by customer phone
     const grouped = {};
     for (const a of agreements) {
-      const key = a.customer_phone || a.customer_name;
-      if (!grouped[key]) grouped[key] = { name: a.customer_name, phone: a.customer_phone, bookings: [] };
+      const key = a.mobile || a.customer_name;
+      if (!grouped[key]) grouped[key] = { name: a.customer_name, phone: a.mobile, bookings: [] };
       grouped[key].bookings.push(a);
     }
 
@@ -79,7 +63,7 @@ class ReportGenerator {
       report += `👤 ${customer.name}\n`;
       report += `   📱 ${customer.phone || 'N/A'}\n`;
       for (const b of customer.bookings) {
-        report += `   ${b.car_plate} | ${b.start_date} → ${b.end_date}\n`;
+        report += `   ${b.plate_number} | ${(getStartDate(b) || '').slice(0, 10)} → ${(getEndDate(b) || '').slice(0, 10)}\n`;
       }
       report += `\n`;
     }
@@ -89,21 +73,16 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Report 3: Sorted by Timeslot
-   * Today's pickups and returns.
-   */
   async sortedByTimeslot() {
     const today = todayMYT();
     const allAgreements = await agreementsService.getActiveAgreements();
     const allAgreementsAll = await agreementsService.getAllAgreements();
 
-    // Filter for today's pickups and returns
     const pickupsToday = allAgreementsAll.filter(a =>
-      a.start_date && a.start_date.startsWith(today) && ['New', 'Editted', 'Extended'].includes(a.status)
+      a.date_start && a.date_start.startsWith(today) && ['New', 'Editted', 'Extended'].includes(a.status)
     );
     const returnsToday = allAgreements.filter(a =>
-      a.end_date && a.end_date.startsWith(today)
+      a.date_end && a.date_end.startsWith(today)
     );
 
     let report = `*🕐 Report 3: Today's Timeslots*\n`;
@@ -113,8 +92,8 @@ class ReportGenerator {
     if (pickupsToday.length > 0) {
       report += `\`\`\`\n`;
       for (const a of pickupsToday) {
-        report += `${a.car_plate} → ${a.customer_name}\n`;
-        report += `  📱 ${a.customer_phone || 'N/A'}\n`;
+        report += `${a.plate_number} → ${a.customer_name}\n`;
+        report += `  📱 ${a.mobile || 'N/A'}\n`;
       }
       report += `\`\`\`\n`;
     } else {
@@ -125,8 +104,8 @@ class ReportGenerator {
     if (returnsToday.length > 0) {
       report += `\`\`\`\n`;
       for (const a of returnsToday) {
-        report += `${a.car_plate} ← ${a.customer_name}\n`;
-        report += `  📱 ${a.customer_phone || 'N/A'}\n`;
+        report += `${a.plate_number} ← ${a.customer_name}\n`;
+        report += `  📱 ${a.mobile || 'N/A'}\n`;
       }
       report += `\`\`\``;
     } else {
@@ -136,10 +115,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Report 4: Follow-up Report
-   * Expiring rentals, overdue returns, pending payments.
-   */
   async followUpReport() {
     const [expiring, overdue] = await Promise.all([
       agreementsService.getExpiringAgreements(3),
@@ -149,30 +124,30 @@ class ReportGenerator {
     let report = `*📞 Report 4: Follow-up Required*\n`;
     report += `*${formatMYT(new Date(), 'full')}*\n\n`;
 
-    // Overdue (urgent)
     report += `*🚨 OVERDUE (${overdue.length}):*\n`;
     if (overdue.length > 0) {
       report += `\`\`\`\n`;
       for (const a of overdue) {
-        const daysLate = daysBetween(a.end_date, todayMYT());
-        report += `${a.car_plate} | ${a.customer_name} (${daysLate}d late)\n`;
-        report += `  📱 ${a.customer_phone || 'N/A'}\n`;
-        report += `  Due: ${a.end_date}\n`;
+        const endDate = (getEndDate(a) || '').slice(0, 10);
+        const daysLate = daysBetween(endDate, todayMYT());
+        report += `${a.plate_number} | ${a.customer_name} (${daysLate}d late)\n`;
+        report += `  📱 ${a.mobile || 'N/A'}\n`;
+        report += `  Due: ${endDate}\n`;
       }
       report += `\`\`\`\n`;
     } else {
       report += `\`\`\`None - all good!\`\`\`\n`;
     }
 
-    // Expiring soon
     report += `\n*⚠️ EXPIRING IN 3 DAYS (${expiring.length}):*\n`;
     if (expiring.length > 0) {
       report += `\`\`\`\n`;
       for (const a of expiring) {
-        const daysLeft = daysBetween(todayMYT(), a.end_date);
-        report += `${a.car_plate} | ${a.customer_name} (${daysLeft}d left)\n`;
-        report += `  📱 ${a.customer_phone || 'N/A'}\n`;
-        report += `  Ends: ${a.end_date}\n`;
+        const endDate = (getEndDate(a) || '').slice(0, 10);
+        const daysLeft = daysBetween(todayMYT(), endDate);
+        report += `${a.plate_number} | ${a.customer_name} (${daysLeft}d left)\n`;
+        report += `  📱 ${a.mobile || 'N/A'}\n`;
+        report += `  Ends: ${endDate}\n`;
       }
       report += `\`\`\``;
     } else {
@@ -183,10 +158,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Report 5: Available Cars Report
-   * What's available right now (cross-validated with agreements).
-   */
   async availableReport() {
     const [cars, activeAgreements] = await Promise.all([
       fleetService.getAllCars(),
@@ -204,21 +175,18 @@ class ReportGenerator {
       return report;
     }
 
-    // Group by category
     const grouped = {};
     for (const car of available) {
-      const cat = car.category || 'other';
+      const cat = car.body_type || 'other';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(car);
     }
 
-    for (const [cat, cars] of Object.entries(grouped)) {
-      const pricing = policies.getCategoryPricing(cat);
-      report += `*${cat.charAt(0).toUpperCase() + cat.slice(1)}:*\n\`\`\`\n`;
-      for (const car of cars) {
-        report += `${car.car_plate} | ${car.make} ${car.model}`;
-        if (car.color) report += ` (${car.color})`;
-        report += ` | RM${car.daily_rate}/day\n`;
+    for (const [cat, catCars] of Object.entries(grouped)) {
+      report += `*${cat}:*\n\`\`\`\n`;
+      for (const car of catCars) {
+        report += `${car.plate_number} | ${car._carName || car.body_type || ''}`;
+        report += ` | RM${car.daily_price}/day\n`;
       }
       report += `\`\`\`\n`;
     }
@@ -236,9 +204,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Report 6: Summary Report (full daily overview).
-   */
   async summaryReport() {
     const [fleetStats, agreementStats, overdue, expiring, topCustomers, cars, activeAgreements] = await Promise.all([
       fleetService.getFleetStats(),
@@ -255,20 +220,17 @@ class ReportGenerator {
     let report = `*📊 Report 6: Daily Summary*\n`;
     report += `*${formatMYT(new Date(), 'full')}*\n\n`;
 
-    // Fleet
     report += `*Fleet:*\n\`\`\`\n`;
     report += `Total: ${fleetStats.total} | Available: ${fleetStats.available}\n`;
     report += `Rented: ${fleetStats.rented} | Maintenance: ${fleetStats.maintenance}\n`;
     report += `\`\`\`\n`;
 
-    // Bookings
     report += `\n*Bookings:*\n\`\`\`\n`;
     report += `Active: ${agreementStats.activeCount}\n`;
     report += `Expiring (3d): ${agreementStats.expiringCount}\n`;
     report += `Overdue: ${agreementStats.overdueCount}\n`;
     report += `\`\`\`\n`;
 
-    // Revenue
     report += `\n*Revenue (This Month):*\n\`\`\`\n`;
     report += `Total: RM${agreementStats.monthRevenue.toFixed(2)}\n`;
     report += `Collected: RM${agreementStats.monthCollected.toFixed(2)}\n`;
@@ -276,12 +238,12 @@ class ReportGenerator {
     report += `Customers: ${agreementStats.totalCustomers}\n`;
     report += `\`\`\``;
 
-    // Alerts
     if (overdue.length > 0) {
       report += `\n\n*🚨 Overdue (${overdue.length}):*\n\`\`\`\n`;
       for (const a of overdue) {
-        const days = daysBetween(a.end_date, todayMYT());
-        report += `${a.car_plate} - ${a.customer_name} (${days}d)\n`;
+        const endDate = (getEndDate(a) || '').slice(0, 10);
+        const days = daysBetween(endDate, todayMYT());
+        report += `${a.plate_number} - ${a.customer_name} (${days}d)\n`;
       }
       report += `\`\`\``;
     }
@@ -289,7 +251,7 @@ class ReportGenerator {
     if (expiring.length > 0) {
       report += `\n\n*⚠️ Expiring (${expiring.length}):*\n\`\`\`\n`;
       for (const a of expiring) {
-        report += `${a.car_plate} - ${a.customer_name} (${a.end_date})\n`;
+        report += `${a.plate_number} - ${a.customer_name} (${(getEndDate(a) || '').slice(0, 10)})\n`;
       }
       report += `\`\`\``;
     }
@@ -302,7 +264,6 @@ class ReportGenerator {
       report += `\`\`\``;
     }
 
-    // Top customers
     if (topCustomers.length > 0) {
       report += `\n\n*Top Customers:*\n\`\`\`\n`;
       for (const c of topCustomers.slice(0, 5)) {
@@ -314,11 +275,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ─── Legacy report methods (backwards compatible) ──────────
-
-  /**
-   * Fleet report with cross-validation.
-   */
   async fleetReport() {
     const [cars, activeAgreements] = await Promise.all([
       fleetService.getAllCars(),
@@ -329,7 +285,7 @@ class ReportGenerator {
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
     const rented = validated.filter(c => (c._validatedStatus || c.status) === 'rented');
     const maintenance = validated.filter(c => (c._validatedStatus || c.status) === 'maintenance');
-    const overdue = validated.filter(c => c._overdue);
+    const overdueList = validated.filter(c => c._overdue);
 
     let report = `*🚗 JRV Fleet Report*\n`;
     report += `*${formatMYT(new Date(), 'full')}*\n\n`;
@@ -337,24 +293,25 @@ class ReportGenerator {
     report += `Available: ${available.length}\n`;
     report += `Rented: ${rented.length}\n`;
     report += `Maintenance: ${maintenance.length}\n`;
-    if (overdue.length) report += `⚠ Overdue returns: ${overdue.length}\n`;
+    if (overdueList.length) report += `⚠ Overdue returns: ${overdueList.length}\n`;
     report += `\`\`\`\n`;
 
     if (available.length > 0) {
       report += `\n*Available Cars:*\n\`\`\`\n`;
       for (const car of available) {
-        report += `${car.car_plate} ${car.make} ${car.model} RM${car.daily_rate}/day\n`;
+        report += `${car.plate_number} ${car._carName || car.body_type || ''} RM${car.daily_price}/day\n`;
       }
       report += `\`\`\``;
     }
 
-    if (overdue.length > 0) {
+    if (overdueList.length > 0) {
       report += `\n\n*⚠ Overdue Returns:*\n\`\`\`\n`;
-      for (const car of overdue) {
-        const agreement = activeAgreements.find(a => a.car_plate?.toUpperCase() === car.car_plate?.toUpperCase());
+      for (const car of overdueList) {
+        const agreement = activeAgreements.find(a => a.plate_number?.toUpperCase() === car.plate_number?.toUpperCase());
         if (agreement) {
-          const daysLate = daysBetween(agreement.end_date, todayMYT());
-          report += `${car.car_plate} - ${agreement.customer_name} (${daysLate}d overdue)\n`;
+          const endDate = (getEndDate(agreement) || '').slice(0, 10);
+          const daysLate = daysBetween(endDate, todayMYT());
+          report += `${car.plate_number} - ${agreement.customer_name} (${daysLate}d overdue)\n`;
         }
       }
       report += `\`\`\``;
@@ -372,9 +329,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Earnings report.
-   */
   async earningsReport() {
     const [todayEarnings, monthEarnings] = await Promise.all([
       agreementsService.getTodayEarnings(),
@@ -401,9 +355,6 @@ class ReportGenerator {
     return report;
   }
 
-  /**
-   * Daily summary (alias for summaryReport).
-   */
   async dailySummary() {
     return this.summaryReport();
   }

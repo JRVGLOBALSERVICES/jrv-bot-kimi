@@ -151,15 +151,14 @@ async function executeTool(name, args) {
       const validated = cache.validatedCars || cache.cars;
       let available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
       if (args.category) {
-        available = available.filter(c => c.category?.toLowerCase() === args.category.toLowerCase());
+        available = available.filter(c => (c.body_type || '').toLowerCase() === args.category.toLowerCase());
       }
       return available.map(c => ({
-        make: c.make,
-        model: c.model,
+        car_name: c._carName || c.body_type || '',
         color: c.color,
         year: c.year,
-        category: c.category,
-        daily_rate: c.daily_rate,
+        body_type: c.body_type,
+        daily_price: c.daily_price,
         // Plate intentionally excluded — added only for admin context
       }));
     }
@@ -183,9 +182,9 @@ async function executeTool(name, args) {
         totalSpent: history.totalSpent,
         isRegular: history.totalRentals >= 5,
         activeRentals: history.activeRentals.map(a => ({
-          car_model: a.car_description || `${a.make || ''} ${a.model || ''}`.trim(),
-          start_date: a.start_date,
-          end_date: a.end_date,
+          car_type: a.car_type || '',
+          date_start: a.date_start,
+          date_end: a.date_end,
           status: a.status,
         })),
       };
@@ -195,12 +194,12 @@ async function executeTool(name, args) {
       const active = await agreementsService.getActiveAgreements();
       return active.map(a => ({
         customer_name: a.customer_name,
-        customer_phone: a.customer_phone,
-        car_plate: a.car_plate,
-        start_date: a.start_date,
-        end_date: a.end_date,
+        mobile: a.mobile,
+        plate_number: a.plate_number,
+        date_start: a.date_start,
+        date_end: a.date_end,
         status: a.status,
-        days_left: daysBetween(todayMYT(), a.end_date),
+        days_left: daysBetween(todayMYT(), (a.date_end || '').slice(0, 10)),
       }));
     }
 
@@ -208,10 +207,10 @@ async function executeTool(name, args) {
       const expiring = await agreementsService.getExpiringAgreements(args.days || 3);
       return expiring.map(a => ({
         customer_name: a.customer_name,
-        customer_phone: a.customer_phone,
-        car_plate: a.car_plate,
-        end_date: a.end_date,
-        days_left: daysBetween(todayMYT(), a.end_date),
+        mobile: a.mobile,
+        plate_number: a.plate_number,
+        date_end: a.date_end,
+        days_left: daysBetween(todayMYT(), (a.date_end || '').slice(0, 10)),
       }));
     }
 
@@ -219,10 +218,10 @@ async function executeTool(name, args) {
       const overdue = await agreementsService.getOverdueAgreements();
       return overdue.map(a => ({
         customer_name: a.customer_name,
-        customer_phone: a.customer_phone,
-        car_plate: a.car_plate,
-        end_date: a.end_date,
-        days_overdue: daysBetween(a.end_date, todayMYT()),
+        mobile: a.mobile,
+        plate_number: a.plate_number,
+        date_end: a.date_end,
+        days_overdue: daysBetween((a.date_end || '').slice(0, 10), todayMYT()),
       }));
     }
 
@@ -234,12 +233,11 @@ async function executeTool(name, args) {
     case 'search_cars': {
       const results = await fleetService.searchCars(args.query);
       return results.map(c => ({
-        car_plate: c.car_plate,
-        make: c.make,
-        model: c.model,
+        plate_number: c.plate_number,
+        car_name: c._carName || c.body_type || '',
         color: c.color,
         status: c.status,
-        daily_rate: c.daily_rate,
+        daily_price: c.daily_price,
       }));
     }
 

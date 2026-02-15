@@ -179,11 +179,10 @@ Requirements:
           type: 'fleet',
           count: cache.cars.length,
           data: cache.cars.map(c => ({
-            plate: c.car_plate,
-            make: c.make,
-            model: c.model,
+            plate: c.plate_number,
+            car_name: c._carName || c.body_type || '',
             status: c.status,
-            daily_rate: c.daily_rate,
+            daily_price: c.daily_price,
           })),
         };
       }
