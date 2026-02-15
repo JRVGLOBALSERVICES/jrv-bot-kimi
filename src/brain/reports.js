@@ -100,7 +100,7 @@ class ReportGenerator {
 
     // Filter for today's pickups and returns
     const pickupsToday = allAgreementsAll.filter(a =>
-      a.start_date && a.start_date.startsWith(today) && ['New', 'Extended'].includes(a.status)
+      a.start_date && a.start_date.startsWith(today) && ['New', 'Editted', 'Extended'].includes(a.status)
     );
     const returnsToday = allAgreements.filter(a =>
       a.end_date && a.end_date.startsWith(today)

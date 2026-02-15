@@ -22,7 +22,7 @@
  *   deposit_status (text)    - "collected", "refunded", "partial", "forfeited"
  *   payment_method (text)    - "cash", "bank_transfer", "card"
  *   payment_status (text)    - "pending", "paid", "partial", "overdue"
- *   status (text)            - "active", "completed", "cancelled", "overdue", "extended"
+ *   status (text)            - "New", "Editted", "Extended", "Completed", "Cancelled", "Deleted"
  *   notes (text)
  *   created_by (text)        - Admin who created
  *   created_at (timestamptz)
@@ -39,12 +39,18 @@ const FIELDS = {
 };
 
 // Status values match DB (capitalized)
+// Car is RENTED when agreement is: New, Editted (end_date >= today), Extended
+// Car is AVAILABLE when agreement is: Completed, Editted (end_date < today), Cancelled, Deleted
 const STATUS = {
-  ACTIVE: 'New',        // "New" in DB = currently active rental
+  NEW: 'New',            // Active rental
+  EDITTED: 'Editted',   // Could be active or completed — check end_date
+  EXTENDED: 'Extended',  // Active rental (extended)
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
-  OVERDUE: 'Overdue',
-  EXTENDED: 'Extended',
+  DELETED: 'Deleted',
 };
 
-module.exports = { TABLE, FIELDS, STATUS };
+// Statuses that mean car is currently rented (before checking end_date)
+const ACTIVE_STATUSES = ['New', 'Editted', 'Extended'];
+
+module.exports = { TABLE, FIELDS, STATUS, ACTIVE_STATUSES };

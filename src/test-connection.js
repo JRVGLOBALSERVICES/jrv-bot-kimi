@@ -76,7 +76,7 @@ async function run() {
   if (cars && agreements) {
     console.log('\n3. Cross-validating car status with agreements...\n');
 
-    const activeAgreements = agreements.filter(a => ['New', 'Extended'].includes(a.status));
+    const activeAgreements = agreements.filter(a => ['New', 'Editted', 'Extended'].includes(a.status));
     const { validated, mismatches } = validateFleetStatus(cars, activeAgreements);
 
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');

@@ -1,5 +1,6 @@
 const supabase = require('../client');
 const { agreements } = require('../schemas');
+const { ACTIVE_STATUSES } = agreements;
 const { EXCLUDED_AGREEMENT_STATUS } = require('../../utils/validators');
 const { todayMYT, daysFromNowMYT, formatMYT } = require('../../utils/time');
 
@@ -39,7 +40,7 @@ class AgreementsService {
 
   async getActiveAgreements() {
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
-      .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.EXTENDED])
+      .in('status', ACTIVE_STATUSES)
       .order('end_date');
     if (error) throw error;
     return data;
@@ -55,7 +56,7 @@ class AgreementsService {
   async getOverdueAgreements() {
     const today = todayMYT();
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
-      .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.EXTENDED])
+      .in('status', ACTIVE_STATUSES)
       .lt('end_date', today)
       .order('end_date');
     if (error) throw error;
@@ -67,7 +68,7 @@ class AgreementsService {
     const cutoff = daysFromNowMYT(daysAhead);
 
     const { data, error } = await this._baseQuery(agreements.FIELDS.ACTIVE)
-      .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.EXTENDED])
+      .in('status', ACTIVE_STATUSES)
       .gte('end_date', today)
       .lte('end_date', cutoff)
       .order('end_date');
@@ -112,7 +113,7 @@ class AgreementsService {
 
   async getEarnings(startDate, endDate) {
     let query = this._baseQuery(agreements.FIELDS.FINANCIAL)
-      .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.COMPLETED, agreements.STATUS.EXTENDED]);
+      .in('status', [...ACTIVE_STATUSES, agreements.STATUS.COMPLETED]);
 
     if (startDate) query = query.gte('start_date', startDate);
     if (endDate) query = query.lte('start_date', endDate);
@@ -199,7 +200,7 @@ class AgreementsService {
       phone: data[0].customer_phone,
       totalRentals: data.length,
       totalSpent,
-      activeRentals: data.filter(a => [agreements.STATUS.ACTIVE, agreements.STATUS.EXTENDED].includes(a.status)),
+      activeRentals: data.filter(a => ACTIVE_STATUSES.includes(a.status)),
       pastRentals: data.filter(a => a.status === agreements.STATUS.COMPLETED),
       agreements: data,
     };
@@ -208,7 +209,7 @@ class AgreementsService {
   async getTopCustomers(limit = 10) {
     const data = await this._fetchAll(
       this._baseQuery('customer_name, customer_phone, total_amount, status')
-        .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.COMPLETED, agreements.STATUS.EXTENDED])
+        .in('status', [...ACTIVE_STATUSES, agreements.STATUS.COMPLETED])
     );
 
     const map = new Map();
