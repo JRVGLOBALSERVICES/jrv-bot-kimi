@@ -52,15 +52,14 @@ class TTSEngine {
       }
     }
 
-    // Upload to Cloudinary if available
+    // Upload to Cloudinary if available (keep local file for WhatsApp sending)
     if (cloudinary.isAvailable()) {
       try {
         const upload = await cloudinary.uploadVoice(outputPath);
         result.cloudUrl = upload.secureUrl;
         result.publicId = upload.publicId;
         console.log(`[TTS] Uploaded to Cloudinary: ${upload.secureUrl}`);
-        // Clean up local file after successful upload
-        try { fs.unlinkSync(outputPath); } catch {}
+        // NOTE: Do NOT delete local file — WhatsApp needs it to send as voice note
       } catch (err) {
         console.warn('[TTS] Cloudinary upload failed, keeping local:', err.message);
       }
@@ -97,36 +96,59 @@ class TTSEngine {
     const voice = jarvisVoice.getVoice(language);
     const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
     const isWin = process.platform === 'win32';
-    const suppress = isWin ? ' 2>NUL' : ' 2>/dev/null';
-    const safeText = text.replace(/"/g, '\\"').replace(/\n/g, ' ');
+    // Clean text for shell: remove quotes and newlines
+    const safeText = text.replace(/['"]/g, '').replace(/\n/g, ' ').replace(/[`$\\]/g, '');
 
+    let cliError = null;
     try {
-      execSync(
-        `edge-tts --voice "${voice}" ${rateStr} --text "${safeText}" --write-media "${outputPath}"${suppress}`,
-        { timeout: 30000, stdio: 'pipe' }
-      );
-    } catch {
-      // Try Python edge-tts as fallback
+      // Try edge-tts CLI directly
+      const cmd = `edge-tts --voice "${voice}" ${rateStr} --text "${safeText}" --write-media "${outputPath}"`;
+      console.log(`[TTS] Running: ${cmd.slice(0, 120)}...`);
+      execSync(cmd, { timeout: 30000, stdio: 'pipe' });
+    } catch (err) {
+      cliError = err.stderr ? err.stderr.toString().slice(0, 200) : err.message;
+      console.warn(`[TTS] edge-tts CLI failed: ${cliError}`);
+
+      // Fallback: use Python edge_tts module directly
       const pyCmd = isWin ? 'python' : 'python3';
+      // Write text to a temp file to avoid shell escaping issues
+      const textPath = path.join(this.outputDir, 'tts_input.txt');
+      fs.writeFileSync(textPath, text, 'utf8');
+
       const pyScript = `
-import edge_tts, asyncio
+import edge_tts, asyncio, sys
+
 async def main():
-    communicate = edge_tts.Communicate("${safeText}", "${voice}")
+    with open(r"${textPath}", "r", encoding="utf-8") as f:
+        text = f.read()
+    communicate = edge_tts.Communicate(text, "${voice}")
     await communicate.save(r"${outputPath}")
+    print("OK", file=sys.stderr)
+
 asyncio.run(main())
-      `.trim();
+`.trim();
       const pyPath = path.join(this.outputDir, 'tts_temp.py');
       fs.writeFileSync(pyPath, pyScript);
       try {
-        execSync(`${pyCmd} "${pyPath}"`, { timeout: 30000, stdio: 'pipe' });
+        console.log(`[TTS] Trying Python fallback: ${pyCmd} ${pyPath}`);
+        const result = execSync(`${pyCmd} "${pyPath}"`, { timeout: 30000, stdio: 'pipe' });
+        console.log(`[TTS] Python edge-tts output: ${result.toString().slice(0, 100)}`);
+      } catch (pyErr) {
+        const pyErrMsg = pyErr.stderr ? pyErr.stderr.toString().slice(0, 300) : pyErr.message;
+        console.error(`[TTS] Python edge-tts also failed: ${pyErrMsg}`);
+        throw new Error(`Edge TTS failed. CLI: ${cliError}. Python: ${pyErrMsg}`);
       } finally {
-        if (fs.existsSync(pyPath)) fs.unlinkSync(pyPath);
+        try { fs.unlinkSync(pyPath); } catch {}
+        try { fs.unlinkSync(textPath); } catch {}
       }
     }
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('Edge TTS produced no output. Install with: pip install edge-tts');
+      throw new Error(`Edge TTS produced no output file at ${outputPath}. CLI error: ${cliError || 'none'}`);
     }
+
+    const stats = fs.statSync(outputPath);
+    console.log(`[TTS] Generated ${stats.size} bytes: ${outputPath}`);
 
     return {
       filePath: outputPath,

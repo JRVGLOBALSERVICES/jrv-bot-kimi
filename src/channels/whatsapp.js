@@ -17,6 +17,8 @@ class WhatsAppChannel {
     this.onReady = null;
     // LID → phone mapping cache (WhatsApp LIDs are opaque identifiers)
     this._lidCache = new Map();
+    this._lidSavedToDb = new Set(); // Track which LIDs have been saved to Supabase
+    this._lidMappingsLoaded = false;
   }
 
   async init(onMessage) {
@@ -46,6 +48,8 @@ class WhatsAppChannel {
       this.ready = true;
       console.log('[WhatsApp] Connected and ready!');
       this._reportStatus('connected');
+      // Load saved LID mappings from Supabase
+      this._loadLidMappings().catch(() => {});
       if (this.onReady) this.onReady();
     });
 
@@ -90,7 +94,10 @@ class WhatsAppChannel {
         resolved = true;
       }
 
-      // 2. Check configured LID_PHONE_MAP (most reliable — set once in .env)
+      // 2. Check Supabase-stored LID mappings (auto-discovered from previous sessions)
+      // These are already loaded into _lidCache on startup via _loadLidMappings()
+
+      // 3. Check configured LID_PHONE_MAP (manual override in .env)
       // Format: LID_PHONE_MAP=47687122567393=60138606455,otherLid=otherPhone
       if (!resolved) {
         const map = (process.env.LID_PHONE_MAP || '').split(',').filter(Boolean);
@@ -106,7 +113,7 @@ class WhatsAppChannel {
         }
       }
 
-      // 3. Try contact.number (whatsapp-web.js userid field)
+      // 4. Try contact.number (whatsapp-web.js userid field)
       if (!resolved && contact.number) {
         phone = contact.number.replace(/\D/g, '');
         this._lidCache.set(lidId, phone);
@@ -114,7 +121,7 @@ class WhatsAppChannel {
         console.log(`[WhatsApp] LID resolved via contact.number: ${lidId} → ${phone}`);
       }
 
-      // 4. Try contact.id.user
+      // 5. Try contact.id.user
       if (!resolved && contact.id?.user && !contact.id.user.includes('@')) {
         const idUser = contact.id.user.replace(/\D/g, '');
         if (idUser.length >= 10 && /^[1-9]/.test(idUser)) {
@@ -125,7 +132,7 @@ class WhatsAppChannel {
         }
       }
 
-      // 5. Try getNumberId() API call
+      // 6. Try getNumberId() API call
       if (!resolved) {
         try {
           const numberId = await this.client.getNumberId(contact.id._serialized);
@@ -140,7 +147,7 @@ class WhatsAppChannel {
         }
       }
 
-      // 6. Last resort: match pushname against known admin names
+      // 7. Last resort: match pushname against known admin names
       if (!resolved) {
         const pushName = (contact.pushname || contact.name || '').toLowerCase();
         const adminNames = { rj: '60138606455', vir: '60138845477' };
@@ -157,6 +164,12 @@ class WhatsAppChannel {
 
       if (!resolved) {
         console.warn(`[WhatsApp] Could not resolve LID ${lidId}. pushname="${contact.pushname}", contact.number="${contact.number}"`);
+      }
+
+      // Persist newly discovered LID→phone mapping to Supabase
+      if (resolved && !this._lidSavedToDb.has(lidId)) {
+        this._lidSavedToDb.add(lidId);
+        this._saveLidMapping(lidId, phone).catch(() => {});
       }
     }
 
@@ -320,6 +333,65 @@ class WhatsAppChannel {
     const b64 = buffer.toString('base64');
     const media = new MessageMedia(mimetype, b64, filename);
     await this.client.sendMessage(superadminChatId, media, { caption });
+  }
+
+  /**
+   * Load saved LID→phone mappings from Supabase on startup.
+   */
+  async _loadLidMappings() {
+    try {
+      const supabase = require('../supabase/client');
+      const { data } = await supabase
+        .from('bot_data_store')
+        .select('value')
+        .eq('key', 'lid_phone_map')
+        .single();
+
+      if (data?.value && typeof data.value === 'object') {
+        const map = data.value;
+        let count = 0;
+        for (const [lid, phone] of Object.entries(map)) {
+          if (lid && phone) {
+            this._lidCache.set(lid, phone);
+            count++;
+          }
+        }
+        this._lidMappingsLoaded = true;
+        console.log(`[WhatsApp] Loaded ${count} LID→phone mappings from Supabase`);
+      }
+    } catch (err) {
+      // Non-critical — LID resolution will still work via other methods
+      console.warn('[WhatsApp] Could not load LID mappings:', err.message);
+    }
+  }
+
+  /**
+   * Save a LID→phone mapping to Supabase for persistence across restarts.
+   */
+  async _saveLidMapping(lid, phone) {
+    try {
+      const supabase = require('../supabase/client');
+      // Read existing mappings
+      const { data } = await supabase
+        .from('bot_data_store')
+        .select('value')
+        .eq('key', 'lid_phone_map')
+        .single();
+
+      const map = (data?.value && typeof data.value === 'object') ? { ...data.value } : {};
+      map[lid] = phone;
+
+      await supabase.from('bot_data_store').upsert({
+        key: 'lid_phone_map',
+        value: map,
+        created_by: 'jarvis',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+
+      console.log(`[WhatsApp] Saved LID mapping: ${lid} → ${phone}`);
+    } catch (err) {
+      // Non-critical
+    }
   }
 
   /**
