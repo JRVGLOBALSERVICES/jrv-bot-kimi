@@ -38,12 +38,13 @@ const FIELDS = {
   FINANCIAL: 'id, agreement_number, customer_name, daily_rate, total_amount, deposit_amount, deposit_status, payment_status, payment_method',
 };
 
+// Status values match DB (capitalized)
 const STATUS = {
-  ACTIVE: 'active',
-  COMPLETED: 'completed',
-  CANCELLED: 'cancelled',
-  OVERDUE: 'overdue',
-  EXTENDED: 'extended',
+  ACTIVE: 'New',        // "New" in DB = currently active rental
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  OVERDUE: 'Overdue',
+  EXTENDED: 'Extended',
 };
 
 module.exports = { TABLE, FIELDS, STATUS };

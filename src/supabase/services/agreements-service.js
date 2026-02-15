@@ -5,17 +5,34 @@ const { todayMYT, daysFromNowMYT, formatMYT } = require('../../utils/time');
 
 /**
  * Agreements Service
- * All statuses are valid EXCEPT 'deleted'.
+ * All statuses are valid EXCEPT 'Deleted'.
  * All dates in DB are UTC — converted to MYT for queries and display.
  */
 class AgreementsService {
-  // ─── Base query (excludes deleted) ────────────────────
+  // ─── Base query (excludes Deleted) ───────────────────
 
   _baseQuery(fields = agreements.FIELDS.ALL) {
     return supabase
       .from(agreements.TABLE)
       .select(fields)
       .neq('status', EXCLUDED_AGREEMENT_STATUS);
+  }
+
+  /**
+   * Fetch all rows from a query (bypasses Supabase 1000-row default limit).
+   */
+  async _fetchAll(query) {
+    const PAGE = 1000;
+    let all = [];
+    let offset = 0;
+    while (true) {
+      const { data, error } = await query.range(offset, offset + PAGE - 1);
+      if (error) throw error;
+      all = all.concat(data);
+      if (data.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
   }
 
   // ─── Booking Queries ──────────────────────────────────
@@ -29,10 +46,10 @@ class AgreementsService {
   }
 
   async getAllAgreements() {
-    const { data, error } = await this._baseQuery(agreements.FIELDS.SUMMARY)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data;
+    return this._fetchAll(
+      this._baseQuery(agreements.FIELDS.SUMMARY)
+        .order('created_at', { ascending: false })
+    );
   }
 
   async getOverdueAgreements() {
@@ -150,9 +167,10 @@ class AgreementsService {
   // ─── Customer Queries (from agreements data) ──────────
 
   async getUniqueCustomers() {
-    const { data, error } = await this._baseQuery('customer_name, customer_phone')
-      .order('customer_name');
-    if (error) throw error;
+    const data = await this._fetchAll(
+      this._baseQuery('customer_name, customer_phone')
+        .order('customer_name')
+    );
 
     const seen = new Map();
     for (const row of data) {
@@ -181,16 +199,17 @@ class AgreementsService {
       phone: data[0].customer_phone,
       totalRentals: data.length,
       totalSpent,
-      activeRentals: data.filter(a => ['active', 'extended'].includes(a.status)),
+      activeRentals: data.filter(a => [agreements.STATUS.ACTIVE, agreements.STATUS.EXTENDED].includes(a.status)),
       pastRentals: data.filter(a => a.status === agreements.STATUS.COMPLETED),
       agreements: data,
     };
   }
 
   async getTopCustomers(limit = 10) {
-    const { data, error } = await this._baseQuery('customer_name, customer_phone, total_amount, status')
-      .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.COMPLETED, agreements.STATUS.EXTENDED]);
-    if (error) throw error;
+    const data = await this._fetchAll(
+      this._baseQuery('customer_name, customer_phone, total_amount, status')
+        .in('status', [agreements.STATUS.ACTIVE, agreements.STATUS.COMPLETED, agreements.STATUS.EXTENDED])
+    );
 
     const map = new Map();
     for (const row of data) {

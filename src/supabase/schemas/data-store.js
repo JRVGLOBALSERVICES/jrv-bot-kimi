@@ -2,13 +2,12 @@
  * Schema: bot_data_store table
  * Key-value store for all bot configuration, pricing, zones, FAQ, logs.
  *
- * Columns:
+ * Columns (actual DB — no is_active column):
  *   id (int8)             - Primary key
- *   category (text)       - e.g. "pricing", "delivery_zones", "faq", "testimonials", "admin"
  *   key (text)            - e.g. "economy_daily", "zone_klcc", "faq_deposit"
  *   value (jsonb)         - The actual data (flexible JSON)
- *   description (text)    - Human-readable description
- *   is_active (bool)
+ *   category (text)       - May or may not exist; e.g. "pricing", "delivery_zones", "faq"
+ *   description (text)    - Human-readable description (may not exist)
  *   created_at (timestamptz)
  *   updated_at (timestamptz)
  *
@@ -27,7 +26,7 @@ const TABLE = 'bot_data_store';
 
 const FIELDS = {
   ALL: '*',
-  CONFIG: 'id, category, key, value, description',
+  CONFIG: 'id, key, value',
 };
 
 const CATEGORIES = {

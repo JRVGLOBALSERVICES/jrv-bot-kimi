@@ -11,7 +11,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 async function testTable(name, query) {
   try {
-    const { data, error, count } = await query;
+    const { data, error } = await query;
     if (error) throw error;
     console.log(`  ✓ ${name}: ${data.length} rows`);
     return data;
@@ -21,6 +21,23 @@ async function testTable(name, query) {
   }
 }
 
+/**
+ * Fetch all rows from a Supabase query (bypasses default 1000-row limit).
+ */
+async function fetchAllRows(baseQuery) {
+  const PAGE = 1000;
+  let all = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await baseQuery.range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 async function run() {
   console.log('═══════════════════════════════════════');
   console.log('  JARVIS Connection Test');
@@ -28,32 +45,38 @@ async function run() {
   console.log(`  Today (MYT): ${todayMYT()}`);
   console.log('═══════════════════════════════════════\n');
 
-  // Test each table
+  // ─── 1. Test each table ──────────────────────────────
   console.log('1. Testing table access...\n');
 
   const cars = await testTable('cars',
     supabase.from('cars').select('*').in('status', VALID_CAR_STATUSES));
 
-  const catalog = await testTable('catalog',
-    supabase.from('catalog').select('*').eq('is_active', true));
+  // Fetch ALL agreements (no 1000-row cap)
+  let agreements = null;
+  try {
+    agreements = await fetchAllRows(
+      supabase.from('agreements').select('*').neq('status', EXCLUDED_AGREEMENT_STATUS)
+    );
+    console.log(`  ✓ agreements: ${agreements.length} rows`);
+  } catch (err) {
+    console.log(`  ✗ agreements: ${err.message}`);
+  }
 
-  const agreements = await testTable('agreements',
-    supabase.from('agreements').select('*').neq('status', EXCLUDED_AGREEMENT_STATUS));
-
+  // bot_data_store — key/value store (no is_active column)
   const dataStore = await testTable('bot_data_store',
-    supabase.from('bot_data_store').select('*').eq('is_active', true));
+    supabase.from('bot_data_store').select('*'));
 
-  // Test time conversion
+  // ─── 2. Time validation ──────────────────────────────
   console.log('\n2. Time validation...\n');
   console.log(`  UTC now:     ${new Date().toISOString()}`);
   console.log(`  MYT now:     ${formatMYT(new Date(), 'datetime')}`);
   console.log(`  Today (MYT): ${todayMYT()}`);
 
-  // Cross-validate car status with agreements
+  // ─── 3. Cross-validate car status with agreements ────
   if (cars && agreements) {
     console.log('\n3. Cross-validating car status with agreements...\n');
 
-    const activeAgreements = agreements.filter(a => ['active', 'extended'].includes(a.status));
+    const activeAgreements = agreements.filter(a => ['New', 'Extended'].includes(a.status));
     const { validated, mismatches } = validateFleetStatus(cars, activeAgreements);
 
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
@@ -68,7 +91,8 @@ async function run() {
     if (mismatches.length > 0) {
       console.log(`\n  ⚠ ${mismatches.length} STATUS MISMATCHES:`);
       mismatches.forEach(m => {
-        console.log(`    ${m.plate}: DB="${m.dbStatus}" → actual="${m.actualStatus}"`);
+        const label = m.plate || m.carLabel || '(unknown)';
+        console.log(`    ${label}: DB="${m.dbStatus}" → actual="${m.actualStatus}"`);
         console.log(`      ${m.reason}`);
       });
     } else {
@@ -76,35 +100,50 @@ async function run() {
     }
   }
 
-  // Check admin config
-  if (dataStore) {
-    console.log('\n4. Checking admin config from bot_data_store...\n');
+  // ─── 4. Inspect bot_data_store ───────────────────────
+  if (dataStore && dataStore.length > 0) {
+    console.log('\n4. Inspecting bot_data_store...\n');
 
-    const adminEntries = dataStore.filter(d => d.category === 'admin');
-    console.log(`  Admin entries: ${adminEntries.length}`);
-    adminEntries.forEach(entry => {
-      console.log(`    ${entry.key}: ${JSON.stringify(entry.value).slice(0, 100)}`);
-    });
+    // Show actual columns from first row
+    const columns = Object.keys(dataStore[0]);
+    console.log(`  Columns: ${columns.join(', ')}`);
+    console.log(`  Total entries: ${dataStore.length}`);
 
-    const categories = [...new Set(dataStore.map(d => d.category))];
-    console.log(`\n  Data store categories: ${categories.join(', ')}`);
-    categories.forEach(cat => {
-      const count = dataStore.filter(d => d.category === cat).length;
-      console.log(`    ${cat}: ${count} entries`);
-    });
+    // Show sample keys (first 10)
+    const keys = dataStore.map(d => d.key).filter(Boolean).slice(0, 10);
+    if (keys.length > 0) {
+      console.log(`\n  Sample keys:`);
+      keys.forEach(k => console.log(`    - ${k}`));
+      if (dataStore.length > 10) console.log(`    ... and ${dataStore.length - 10} more`);
+    }
+
+    // If category column exists, show categories
+    if (dataStore[0].category !== undefined) {
+      const categories = [...new Set(dataStore.map(d => d.category).filter(Boolean))];
+      if (categories.length > 0) {
+        console.log(`\n  Categories: ${categories.join(', ')}`);
+        categories.forEach(cat => {
+          const count = dataStore.filter(d => d.category === cat).length;
+          console.log(`    ${cat}: ${count} entries`);
+        });
+      }
+    }
   }
 
-  // Check agreements status distribution
+  // ─── 5. Agreement status distribution ────────────────
   if (agreements) {
     console.log('\n5. Agreement status distribution...\n');
 
     const statusCounts = {};
     agreements.forEach(a => {
-      statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
+      const s = a.status || '(null)';
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
     });
-    Object.entries(statusCounts).forEach(([status, count]) => {
-      console.log(`  ${status}: ${count}`);
-    });
+    Object.entries(statusCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([status, count]) => {
+        console.log(`  ${status}: ${count}`);
+      });
   }
 
   console.log('\n═══════════════════════════════════════');

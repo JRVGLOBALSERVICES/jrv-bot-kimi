@@ -12,7 +12,7 @@ const { todayMYT, isOverdue } = require('./time');
  */
 
 const VALID_CAR_STATUSES = ['available', 'rented', 'maintenance'];
-const EXCLUDED_AGREEMENT_STATUS = 'deleted';
+const EXCLUDED_AGREEMENT_STATUS = 'Deleted';
 
 /**
  * Validate and reconcile car statuses against active agreements.
@@ -31,13 +31,13 @@ function validateFleetStatus(cars, agreements) {
   for (const agreement of agreements) {
     if (agreement.status === EXCLUDED_AGREEMENT_STATUS) continue;
 
-    // An agreement is "currently active" if status is active/extended and dates overlap today
-    if (['active', 'extended'].includes(agreement.status)) {
+    // An agreement is "currently active" if status is New/Extended and dates overlap today
+    if (['New', 'Extended'].includes(agreement.status)) {
       if (agreement.start_date <= today && agreement.end_date >= today) {
         activePlates.add(agreement.car_plate?.toUpperCase());
       }
       // Overdue: end_date has passed but status still active
-      if (isOverdue(agreement.end_date) && agreement.status === 'active') {
+      if (isOverdue(agreement.end_date) && agreement.status === 'New') {
         overdueePlates.add(agreement.car_plate?.toUpperCase());
       }
     }
@@ -53,9 +53,12 @@ function validateFleetStatus(cars, agreements) {
     const hasActiveAgreement = activePlates.has(plate);
     const isOverdueReturn = overdueePlates.has(plate);
 
+    const carLabel = plate || [car.make, car.model, car.year].filter(Boolean).join(' ') || `ID:${car.id}`;
+
     if (car.status === 'available' && hasActiveAgreement) {
       mismatches.push({
         plate,
+        carLabel,
         dbStatus: 'available',
         actualStatus: 'rented',
         reason: 'Has active agreement but marked available',
@@ -65,6 +68,7 @@ function validateFleetStatus(cars, agreements) {
     } else if (car.status === 'rented' && !hasActiveAgreement) {
       mismatches.push({
         plate,
+        carLabel,
         dbStatus: 'rented',
         actualStatus: 'available',
         reason: 'No active agreement but marked rented',
