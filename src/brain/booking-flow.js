@@ -2,12 +2,17 @@
  * Booking Creation Flow - Guided booking through JARVIS chat.
  *
  * Flow:
- * 1. Customer asks to book → Show available cars
+ * 1. Customer asks to book → Show available cars (no plates for customers)
  * 2. Customer picks car → Confirm car + show pricing
  * 3. Customer provides dates → Calculate total
- * 4. Collect name + phone + documents
- * 5. Show payment instructions
- * 6. Confirm booking → Notify admins
+ * 4. Collect name + phone
+ * 5. Delivery/pickup option → pickup at office or delivery to location
+ * 6. Final confirmation → Assign plate internally
+ * 7. Confirm booking → Notify Vir with plate + details, customer sees NO plate
+ * 8. Show payment instructions + document requirements
+ *
+ * Plate assignment: car plate is assigned internally and sent to Vir.
+ * Customer only learns the plate on pickup/delivery day.
  *
  * State machine per conversation, stored in conversation context.
  */
@@ -24,6 +29,7 @@ const BOOKING_STATES = {
   SELECTING_CAR: 'selecting_car',
   SELECTING_DATES: 'selecting_dates',
   COLLECTING_INFO: 'collecting_info',
+  DELIVERY_OPTION: 'delivery_option',
   CONFIRMING: 'confirming',
   PAYMENT: 'payment',
   COMPLETED: 'completed',
@@ -58,6 +64,9 @@ class BookingFlow {
       customerName: name,
       customerPhone: phone,
       totalAmount: null,
+      deliveryOption: null, // 'pickup' or 'delivery'
+      deliveryLocation: null,
+      assignedPlate: null,
       createdAt: new Date(),
     });
 
@@ -124,6 +133,9 @@ class BookingFlow {
 
       case BOOKING_STATES.COLLECTING_INFO:
         return this._handleInfoCollection(session, text);
+
+      case BOOKING_STATES.DELIVERY_OPTION:
+        return this._handleDeliveryOption(session, text);
 
       case BOOKING_STATES.CONFIRMING:
         return this._handleConfirmation(session, text);
@@ -228,22 +240,80 @@ class BookingFlow {
     const lower = text.toLowerCase().trim();
 
     if (lower === 'yes' || lower === 'ya' || lower === 'confirm' || lower === 'ok') {
-      session.state = BOOKING_STATES.CONFIRMING;
-      return this._showFinalConfirmation(session);
+      session.state = BOOKING_STATES.DELIVERY_OPTION;
+      return this._showDeliveryOptions(session);
     }
 
     // Assume they're providing their name
     session.customerName = text.trim();
+    session.state = BOOKING_STATES.DELIVERY_OPTION;
+    return this._showDeliveryOptions(session);
+  }
+
+  _showDeliveryOptions(session) {
+    let text = `*How would you like to get the car?*\n\n`;
+    text += `*1.* Pickup from our office (FREE)\n`;
+    text += `    📍 Seremban Gateway\n`;
+    text += `*2.* Delivery to your location\n`;
+    text += `    (Delivery fee depends on distance)\n`;
+    text += `\nReply *1* or *2*.`;
+    return text;
+  }
+
+  _handleDeliveryOption(session, text) {
+    const lower = text.toLowerCase().trim();
+
+    if (lower === '1' || /pickup|ambil|self.?collect|office/i.test(lower)) {
+      session.deliveryOption = 'pickup';
+      session.deliveryLocation = 'JRV Office, Seremban Gateway';
+      session.state = BOOKING_STATES.CONFIRMING;
+      return this._showFinalConfirmation(session);
+    }
+
+    if (lower === '2' || /deliver|hantar|send|location/i.test(lower)) {
+      session.deliveryOption = 'delivery';
+      session.state = BOOKING_STATES.CONFIRMING;
+
+      let response = `*Delivery selected*\n\n`;
+      response += `Please share your delivery location:\n`;
+      response += `- Send a *location pin* 📍\n`;
+      response += `- Or type the address/area name\n\n`;
+      response += `_Delivery fees:_\n\`\`\`\n`;
+      for (const zone of Object.values(policies.deliveryZones || {})) {
+        response += `${zone.areas?.join('/') || zone.name}: ${zone.fee === 0 ? 'FREE' : 'RM' + zone.fee}\n`;
+      }
+      response += `\`\`\`\n`;
+      response += `\nOr reply *"skip"* to confirm delivery details later.`;
+      return response;
+    }
+
+    // If they typed an address/location directly (not 1 or 2), treat as delivery location
+    if (lower !== 'skip') {
+      session.deliveryOption = 'delivery';
+      session.deliveryLocation = text.trim();
+      session.state = BOOKING_STATES.CONFIRMING;
+      return this._showFinalConfirmation(session);
+    }
+
+    // Skip — proceed without delivery location
+    session.deliveryOption = 'delivery';
+    session.deliveryLocation = 'TBD';
     session.state = BOOKING_STATES.CONFIRMING;
     return this._showFinalConfirmation(session);
   }
 
   _showFinalConfirmation(session) {
+    const carName = session.selectedCar._carName || session.selectedCar.body_type || '';
+    const deliveryLabel = session.deliveryOption === 'pickup'
+      ? 'Pickup: Seremban Gateway (FREE)'
+      : `Delivery: ${session.deliveryLocation || 'TBD'}`;
+
     let text = `*Final Confirmation*\n\`\`\`\n`;
     text += `Customer: ${session.customerName}\n`;
     text += `Phone: +${session.phone}\n`;
-    text += `Car: ${session.selectedCar._carName || session.selectedCar.body_type || ''}\n`;
+    text += `Car: ${carName}\n`;
     text += `Period: ${session.startDate} → ${session.endDate}\n`;
+    text += `${deliveryLabel}\n`;
     text += `Total: RM${session.totalAmount}\n`;
     text += `\`\`\`\n\n`;
     text += `Reply *"confirm"* to proceed to payment.\n`;
@@ -254,26 +324,49 @@ class BookingFlow {
   _handleConfirmation(session, text) {
     const lower = text.toLowerCase().trim();
 
+    // If in delivery state and they provide a location before confirming
+    if (session.deliveryOption === 'delivery' && !session.deliveryLocation && lower !== 'confirm' && lower !== 'yes' && lower !== 'ya' && lower !== 'ok' && lower !== 'proceed' && lower !== 'skip') {
+      session.deliveryLocation = text.trim();
+      return this._showFinalConfirmation(session);
+    }
+
+    if (lower === 'skip' && session.deliveryOption === 'delivery' && !session.deliveryLocation) {
+      session.deliveryLocation = 'TBD';
+      return this._showFinalConfirmation(session);
+    }
+
     if (lower === 'confirm' || lower === 'yes' || lower === 'ya' || lower === 'ok' || lower === 'proceed') {
       session.state = BOOKING_STATES.PAYMENT;
 
-      // Notify admins
+      // Internally assign the plate number
+      const assignedPlate = session.selectedCar.plate_number;
+      session.assignedPlate = assignedPlate;
+      const carName = session.selectedCar._carName || session.selectedCar.body_type || '';
+      const deliveryLabel = session.deliveryOption === 'pickup'
+        ? 'Pickup at Seremban Gateway'
+        : `Delivery to ${session.deliveryLocation || 'TBD'}`;
+
+      // Notify Vir with FULL details including assigned plate
       const bookingData = {
         customer_name: session.customerName,
         mobile: session.phone,
-        plate_number: session.selectedCar.plate_number,
-        car_type: session.selectedCar._carName || session.selectedCar.body_type || '',
+        plate_number: assignedPlate,
+        car_type: carName,
         date_start: session.startDate,
         date_end: session.endDate,
         total_price: session.totalAmount,
+        delivery: deliveryLabel,
       };
       notifications.onNewBooking(bookingData).catch(() => {});
 
-      let response = `*Booking Created!*\n\`\`\`\n`;
-      response += `${session.selectedCar._carName || session.selectedCar.body_type || ''}\n`;
-      response += `${session.startDate} → ${session.endDate}\n`;
+      // Customer response — NO plate number, car details shared on pickup/delivery
+      let response = `*Booking Confirmed!*\n\`\`\`\n`;
+      response += `Car: ${carName}\n`;
+      response += `Period: ${session.startDate} → ${session.endDate}\n`;
+      response += `${deliveryLabel}\n`;
       response += `Total: RM${session.totalAmount}\n`;
       response += `\`\`\`\n\n`;
+      response += `*Vehicle details (plate number) will be shared on ${session.deliveryOption === 'pickup' ? 'pickup' : 'delivery'} day.*\n\n`;
       response += customerFlows.paymentInstructions(session.totalAmount);
       response += `\n\n*Required documents:*\n`;
       response += `1. IC / Passport\n2. Driving License\n3. Utility Bill\n\n`;
