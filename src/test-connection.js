@@ -76,8 +76,8 @@ async function run() {
   if (cars && agreements) {
     console.log('\n3. Cross-validating car status with agreements...\n');
 
-    const activeAgreements = agreements.filter(a => ['New', 'Editted', 'Extended'].includes(a.status));
-    const { validated, mismatches } = validateFleetStatus(cars, activeAgreements);
+    // Pass ALL agreements — validator filters to past month internally
+    const { validated, mismatches } = validateFleetStatus(cars, agreements);
 
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
     const rented = validated.filter(c => (c._validatedStatus || c.status) === 'rented');

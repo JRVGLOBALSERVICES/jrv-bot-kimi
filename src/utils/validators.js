@@ -1,65 +1,73 @@
-const { todayMYT, isOverdue } = require('./time');
+const { todayMYT, isOverdue, daysFromNowMYT } = require('./time');
 
 /**
- * Cross-reference car status with active agreements.
- * Ensures car status reflects reality.
+ * Cross-reference car status with agreements.
  *
- * Business rules:
- * - Car is RENTED when agreement status is: New, Editted (end_date >= today), Extended
- * - Car is AVAILABLE when agreement status is: Completed, Editted (end_date < today), Cancelled, Deleted
- * - Only car statuses: available, rented, maintenance
- * - Agreements excluded: "Deleted"
+ * Simple date-based logic (no status guessing):
+ * - A car is RENTED if it has any agreement where end_date >= today
+ *   and status is NOT Completed, Cancelled, or Deleted.
+ * - Only checks agreements from the past month for performance.
+ * - A car is AVAILABLE if no such agreement exists.
+ * - Maintenance cars are never overridden.
  */
 
 const VALID_CAR_STATUSES = ['available', 'rented', 'maintenance'];
 const EXCLUDED_AGREEMENT_STATUS = 'Deleted';
 
+// Statuses that mean the agreement is finished (car returned)
+const FINISHED_STATUSES = ['Completed', 'Cancelled', 'Deleted'];
+
 /**
  * Check if an agreement means the car is currently rented.
- * @param {object} agreement
- * @param {string} today - today's date in YYYY-MM-DD format
- * @returns {boolean}
+ * Pure date-based: end_date >= today AND not finished.
  */
 function isAgreementActive(agreement, today) {
-  const status = agreement.status;
+  // If agreement is finished, car is not rented
+  if (FINISHED_STATUSES.includes(agreement.status)) return false;
 
-  // New or Extended = car is rented (if dates overlap)
-  if (status === 'New' || status === 'Extended') {
-    return agreement.start_date <= today && agreement.end_date >= today;
-  }
+  // If end_date >= today, the rental is still ongoing
+  return agreement.end_date >= today;
+}
 
-  // Editted = check end_date to determine if still active
-  if (status === 'Editted') {
-    return agreement.end_date >= today;
-  }
-
-  // Completed, Cancelled, Deleted = car is NOT rented
-  return false;
+/**
+ * Filter agreements to only recent ones (past month + future).
+ * Avoids scanning thousands of old agreements.
+ */
+function getRecentAgreements(agreements) {
+  const oneMonthAgo = daysFromNowMYT(-30);
+  return agreements.filter(a =>
+    a.end_date >= oneMonthAgo &&
+    !FINISHED_STATUSES.includes(a.status)
+  );
 }
 
 /**
  * Validate and reconcile car statuses against agreements.
  * @param {Array} cars - All cars from DB
- * @param {Array} agreements - All non-deleted agreements
+ * @param {Array} agreements - Agreements (ideally recent/active only)
  * @returns {{ validated: Array, mismatches: Array }}
  */
 function validateFleetStatus(cars, agreements) {
   const today = todayMYT();
   const mismatches = [];
 
-  // Build a set of car plates with currently active agreements
-  const activePlates = new Set();
+  // Filter to recent agreements only
+  const recent = getRecentAgreements(agreements);
+
+  // Build map: car_plate → active agreements
+  const activePlates = new Map(); // plate → agreement
   const overduePlates = new Set();
 
-  for (const agreement of agreements) {
-    if (agreement.status === EXCLUDED_AGREEMENT_STATUS) continue;
-
+  for (const agreement of recent) {
     if (isAgreementActive(agreement, today)) {
-      activePlates.add(agreement.car_plate?.toUpperCase());
+      const plate = agreement.car_plate?.toUpperCase();
+      if (plate) {
+        activePlates.set(plate, agreement);
 
-      // Overdue: end_date has passed but agreement still considered active
-      if (isOverdue(agreement.end_date)) {
-        overduePlates.add(agreement.car_plate?.toUpperCase());
+        // Overdue: end_date has passed
+        if (isOverdue(agreement.end_date)) {
+          overduePlates.add(plate);
+        }
       }
     }
   }
@@ -71,7 +79,8 @@ function validateFleetStatus(cars, agreements) {
     // Skip maintenance cars — don't override manual maintenance status
     if (car.status === 'maintenance') return copy;
 
-    const hasActiveAgreement = activePlates.has(plate);
+    const activeAgreement = activePlates.get(plate);
+    const hasActiveAgreement = !!activeAgreement;
     const isOverdueReturn = overduePlates.has(plate);
 
     const carLabel = plate || [car.make, car.model, car.year].filter(Boolean).join(' ') || `ID:${car.id}`;
@@ -82,7 +91,8 @@ function validateFleetStatus(cars, agreements) {
         carLabel,
         dbStatus: 'available',
         actualStatus: 'rented',
-        reason: 'Has active agreement but marked available',
+        reason: `Has agreement (${activeAgreement.status}) ending ${activeAgreement.end_date}`,
+        agreement: activeAgreement,
       });
       copy._validatedStatus = 'rented';
       copy._overdue = isOverdueReturn;
@@ -92,7 +102,7 @@ function validateFleetStatus(cars, agreements) {
         carLabel,
         dbStatus: 'rented',
         actualStatus: 'available',
-        reason: 'No active agreement but marked rented',
+        reason: 'No active agreement found in past month',
       });
       copy._validatedStatus = 'available';
     } else {
@@ -126,8 +136,10 @@ function filterValidAgreements(agreements) {
 module.exports = {
   validateFleetStatus,
   isAgreementActive,
+  getRecentAgreements,
   filterValidCars,
   filterValidAgreements,
   VALID_CAR_STATUSES,
   EXCLUDED_AGREEMENT_STATUS,
+  FINISHED_STATUSES,
 };
