@@ -183,13 +183,24 @@ class JarvisBrain {
 
       // "Send voice note" = generate voice message
       if (/send\s*(a\s*)?voice\s*(note|message|msg)|voice\s*note/i.test(body) && !/transcri/i.test(body)) {
+        // Check if TTS is available first
+        const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(() => false);
+        if (!ttsOk) {
+          response.text = '*Voice not available.*\n```\nTTS engine not installed.\nInstall with: pip install edge-tts\nThen restart the bot.\n```';
+          return;
+        }
         try {
           const voiceText = jarvisVoice.formatForVoice('At your service. All systems operational. What would you like me to report on?');
           const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
-          response.voice = voiceResult.filePath;
-          response.text = '*Voice note sent.*';
+          const fs = require('fs');
+          if (voiceResult.filePath && fs.existsSync(voiceResult.filePath)) {
+            response.voice = voiceResult.filePath;
+            response.text = '*Voice note sent.*';
+          } else {
+            response.text = '*Voice generation failed — file not created.*\n```\nTry: pip install edge-tts\n```';
+          }
         } catch (err) {
-          response.text = `*Voice Error:* \`\`\`${err.message}\`\`\``;
+          response.text = `*Voice Error:* \`\`\`${err.message}\n\nFix: pip install edge-tts\`\`\``;
         }
         return;
       }
