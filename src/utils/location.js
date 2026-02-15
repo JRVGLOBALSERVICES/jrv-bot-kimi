@@ -13,8 +13,8 @@
 
 const policies = require('../brain/policies');
 
-// JRV office coordinates (Seremban)
-const JRV_BASE = { lat: 2.7258, lng: 101.9424, name: 'JRV Car Rental, Seremban' };
+// JRV office coordinates (Seremban Gateway)
+const JRV_BASE = { lat: 2.7256079, lng: 101.9289448, name: 'JRV Car Rental, Seremban Gateway' };
 
 // Known delivery zone coordinates for distance-based matching
 const ZONE_COORDS = {

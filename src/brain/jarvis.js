@@ -14,6 +14,7 @@ const adminTools = require('./admin-tools');
 const jarvisVoice = require('../voice/jarvis-voice');
 const locationService = require('../utils/location');
 const { agreementsService, fleetService, syncEngine } = require('../supabase/services');
+const { validateFleetStatus } = require('../utils/validators');
 
 /**
  * JARVIS Brain - The central orchestrator.
@@ -156,7 +157,7 @@ class JarvisBrain {
 
     // --- Booking start detection ---
     if (/^(book|tempah|nak sewa|i want to (book|rent))/i.test(body) && !bookingFlow.isActive(phone)) {
-      response.text = bookingFlow.start(phone, name || existingCustomer?.customer_name, isAdmin);
+      response.text = await bookingFlow.start(phone, name || existingCustomer?.customer_name, isAdmin);
       return;
     }
 
@@ -227,7 +228,7 @@ class JarvisBrain {
       case INTENTS.BOOKING_INQUIRY: {
         // Start booking flow instead of just showing cars
         if (!bookingFlow.isActive(phone)) {
-          response.text = bookingFlow.start(phone, msg.name || existingCustomer?.customer_name, isAdmin);
+          response.text = await bookingFlow.start(phone, msg.name || existingCustomer?.customer_name, isAdmin);
         } else {
           const cache = syncEngine.getCache();
           const validatedCars = cache.validatedCars || cache.cars;
@@ -577,7 +578,7 @@ class JarvisBrain {
 
       // --- Booking ---
       case 'book': {
-        response.text = bookingFlow.start(msg.phone, msg.name, isAdmin);
+        response.text = await bookingFlow.start(msg.phone, msg.name, isAdmin);
         break;
       }
 
@@ -603,11 +604,15 @@ class JarvisBrain {
         break;
       }
       case 'available': {
-        const cache = syncEngine.getCache();
-        const validatedCars = cache.validatedCars || cache.cars;
+        // Fetch fresh data (don't rely on cache which may be empty if sync failed)
+        const [avCars, avAgreements] = await Promise.all([
+          fleetService.getAllCars(),
+          agreementsService.getActiveAgreements(),
+        ]);
+        const { validated: avValidated } = validateFleetStatus(avCars, avAgreements);
         response.text = isAdmin
-          ? customerFlows.formatAvailableCarsForAdmin(validatedCars)
-          : customerFlows.formatAvailableCarsForCustomer(validatedCars);
+          ? customerFlows.formatAvailableCarsForAdmin(avValidated)
+          : customerFlows.formatAvailableCarsForCustomer(avValidated);
         break;
       }
       case 'bookings': {
