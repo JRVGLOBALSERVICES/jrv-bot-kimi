@@ -8,13 +8,13 @@
  * 4. Calculate delivery fees based on GPS location
  * 5. Parse WhatsApp location messages
  *
- * JRV base location: Seremban, Negeri Sembilan, Malaysia (2.7258, 101.9424)
+ * JRV base location: Seremban 2, Negeri Sembilan, Malaysia
  */
 
 const policies = require('../brain/policies');
 
-// JRV office coordinates (Seremban Gateway)
-const JRV_BASE = { lat: 2.7256079, lng: 101.9289448, name: 'JRV Car Rental, Seremban Gateway' };
+// JRV office coordinates (Seremban 2 branch)
+const JRV_BASE = { lat: 2.6953, lng: 101.9533, name: 'JRV Car Rental, Seremban 2' };
 
 // Known delivery zone coordinates for distance-based matching
 const ZONE_COORDS = {

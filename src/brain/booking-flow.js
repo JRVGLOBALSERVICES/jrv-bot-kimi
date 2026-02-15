@@ -253,7 +253,7 @@ class BookingFlow {
   _showDeliveryOptions(session) {
     let text = `*How would you like to get the car?*\n\n`;
     text += `*1.* Pickup from our office (FREE)\n`;
-    text += `    📍 Seremban Gateway\n`;
+    text += `    📍 Seremban 2 / Seremban\n`;
     text += `*2.* Delivery to your location\n`;
     text += `    (Delivery fee depends on distance)\n`;
     text += `\nReply *1* or *2*.`;
@@ -265,7 +265,7 @@ class BookingFlow {
 
     if (lower === '1' || /pickup|ambil|self.?collect|office/i.test(lower)) {
       session.deliveryOption = 'pickup';
-      session.deliveryLocation = 'JRV Office, Seremban Gateway';
+      session.deliveryLocation = 'JRV Office, Seremban 2';
       session.state = BOOKING_STATES.CONFIRMING;
       return this._showFinalConfirmation(session);
     }
@@ -305,7 +305,7 @@ class BookingFlow {
   _showFinalConfirmation(session) {
     const carName = session.selectedCar._carName || session.selectedCar.body_type || '';
     const deliveryLabel = session.deliveryOption === 'pickup'
-      ? 'Pickup: Seremban Gateway (FREE)'
+      ? 'Pickup: Seremban 2 (FREE)'
       : `Delivery: ${session.deliveryLocation || 'TBD'}`;
 
     let text = `*Final Confirmation*\n\`\`\`\n`;
@@ -343,7 +343,7 @@ class BookingFlow {
       session.assignedPlate = assignedPlate;
       const carName = session.selectedCar._carName || session.selectedCar.body_type || '';
       const deliveryLabel = session.deliveryOption === 'pickup'
-        ? 'Pickup at Seremban Gateway'
+        ? 'Pickup at Seremban 2'
         : `Delivery to ${session.deliveryLocation || 'TBD'}`;
 
       // Notify Vir with FULL details including assigned plate
