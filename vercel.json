@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm install @supabase/supabase-js",
+  "installCommand": "npm install --ignore-scripts",
   "buildCommand": "",
   "outputDirectory": "public",
   "framework": null,
