@@ -23,6 +23,7 @@
     "sip.js": "^0.21.2",
     "sox-stream": "^2.0.3",
     "speaker": "^0.5.5",
+    "systeminformation": "^5.31.0",
     "tesseract.js": "^5.1.1",
     "whatsapp-web.js": "^1.26.0",
     "ws": "^8.18.0"

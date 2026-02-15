@@ -89,6 +89,10 @@ class AdminTools {
       case 'safety-log':
         return this._safetyLog();
 
+      case 'pc':
+      case 'performance':
+        return this._pcPerformance();
+
       case 'system':
         return this._systemInfo();
 
@@ -398,6 +402,138 @@ Requirements:
     };
   }
 
+  // ─── PC Performance Monitor ─────────────────────────
+
+  /**
+   * Full PC performance report: CPU, RAM, disk, temp, battery, GPU, network.
+   */
+  async _pcPerformance() {
+    const si = require('systeminformation');
+
+    const [cpu, cpuLoad, cpuTemp, mem, disk, battery, gpu, net, osInfo, processes] = await Promise.all([
+      si.cpu().catch(() => null),
+      si.currentLoad().catch(() => null),
+      si.cpuTemperature().catch(() => null),
+      si.mem().catch(() => null),
+      si.fsSize().catch(() => null),
+      si.battery().catch(() => null),
+      si.graphics().catch(() => null),
+      si.networkStats().catch(() => null),
+      si.osInfo().catch(() => null),
+      si.processes().catch(() => null),
+    ]);
+
+    const GB = 1024 * 1024 * 1024;
+    const MB = 1024 * 1024;
+
+    const report = {};
+
+    // OS
+    if (osInfo) {
+      report.os = `${osInfo.distro} ${osInfo.release} (${osInfo.arch})`;
+      report.hostname = osInfo.hostname;
+    }
+
+    // CPU
+    if (cpu) {
+      report.cpu = `${cpu.manufacturer} ${cpu.brand} (${cpu.cores} cores, ${cpu.speedMax || cpu.speed}GHz)`;
+    }
+    if (cpuLoad) {
+      report.cpuUsage = `${Math.round(cpuLoad.currentLoad)}%`;
+    }
+
+    // Temperature
+    if (cpuTemp && cpuTemp.main > 0) {
+      report.cpuTemp = `${Math.round(cpuTemp.main)}°C`;
+      if (cpuTemp.max > 0) report.cpuTempMax = `${Math.round(cpuTemp.max)}°C`;
+    } else {
+      report.cpuTemp = 'N/A (sensor not available)';
+    }
+
+    // RAM
+    if (mem) {
+      const usedGB = (mem.used / GB).toFixed(1);
+      const totalGB = (mem.total / GB).toFixed(1);
+      const pct = Math.round((mem.used / mem.total) * 100);
+      report.ram = `${usedGB}GB / ${totalGB}GB (${pct}% used)`;
+      report.ramFree = `${(mem.free / GB).toFixed(1)}GB free`;
+      if (mem.swaptotal > 0) {
+        report.swap = `${(mem.swapused / GB).toFixed(1)}GB / ${(mem.swaptotal / GB).toFixed(1)}GB`;
+      }
+    }
+
+    // Disk
+    if (disk && disk.length > 0) {
+      report.disks = disk.map(d => ({
+        mount: d.mount,
+        size: `${(d.size / GB).toFixed(0)}GB`,
+        used: `${(d.used / GB).toFixed(0)}GB`,
+        free: `${((d.size - d.used) / GB).toFixed(0)}GB`,
+        usage: `${Math.round(d.use)}%`,
+      }));
+    }
+
+    // Battery
+    if (battery && battery.hasBattery) {
+      report.battery = {
+        level: `${Math.round(battery.percent)}%`,
+        charging: battery.isCharging ? 'Yes' : 'No',
+        health: battery.maxCapacity > 0 ? `${Math.round((battery.maxCapacity / battery.designCapacity) * 100)}%` : 'N/A',
+        timeRemaining: battery.timeRemaining > 0 ? `${Math.round(battery.timeRemaining)}min` : 'Calculating...',
+        cycles: battery.cycleCount > 0 ? battery.cycleCount : 'N/A',
+        type: battery.type || 'Unknown',
+      };
+    } else {
+      report.battery = 'No battery (desktop/plugged in)';
+    }
+
+    // GPU
+    if (gpu && gpu.controllers && gpu.controllers.length > 0) {
+      report.gpu = gpu.controllers.map(g => {
+        const info = { name: g.model };
+        if (g.vram > 0) info.vram = `${g.vram}MB`;
+        if (g.temperatureGpu > 0) info.temp = `${Math.round(g.temperatureGpu)}°C`;
+        if (g.utilizationGpu >= 0) info.usage = `${g.utilizationGpu}%`;
+        return info;
+      });
+    }
+
+    // Network
+    if (net && net.length > 0) {
+      const active = net.filter(n => n.tx_bytes > 0 || n.rx_bytes > 0);
+      if (active.length > 0) {
+        report.network = active.slice(0, 3).map(n => ({
+          interface: n.iface,
+          sent: `${(n.tx_bytes / MB).toFixed(1)}MB`,
+          received: `${(n.rx_bytes / MB).toFixed(1)}MB`,
+          speed: n.tx_sec > 0 ? `↑${(n.tx_sec / 1024).toFixed(0)}KB/s ↓${(n.rx_sec / 1024).toFixed(0)}KB/s` : 'idle',
+        }));
+      }
+    }
+
+    // Top processes
+    if (processes && processes.list) {
+      const top5 = processes.list
+        .sort((a, b) => b.cpu - a.cpu)
+        .slice(0, 5)
+        .map(p => ({
+          name: p.name,
+          cpu: `${p.cpu.toFixed(1)}%`,
+          mem: `${(p.mem).toFixed(1)}%`,
+        }));
+      report.topProcesses = top5;
+      report.totalProcesses = processes.all;
+    }
+
+    // Uptime
+    const uptimeSec = require('os').uptime();
+    const hours = Math.floor(uptimeSec / 3600);
+    const mins = Math.floor((uptimeSec % 3600) / 60);
+    report.uptime = `${hours}h ${mins}m`;
+
+    return report;
+  }
+
   /**
    * System information.
    */
@@ -434,7 +570,8 @@ Requirements:
         '/tool delete <trash-file>': 'Permanently delete from trash',
         '/tool purge-trash': 'Empty trash permanently',
         '/tool safety-log': 'File safety audit log',
-        '/tool system': 'System info',
+        '/tool pc': 'Full PC performance (CPU, RAM, temp, battery, GPU)',
+        '/tool system': 'System info (basic)',
       },
       note: 'Boss-only commands. Access restricted to +60138606455.',
     };
