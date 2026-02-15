@@ -393,7 +393,27 @@
         <button onclick="updateModel('aiMode')">Apply</button>
       </div>
     </div>
-    <div class="card full">
+    <!-- LID Phone Mapping -->
+    <div class="card full" style="margin-top:12px;">
+      <h2>WhatsApp LID Mappings</h2>
+      <div style="color:var(--dim);font-size:11px;margin-bottom:10px;">
+        WhatsApp uses opaque LID identifiers instead of phone numbers. Map LIDs to phone numbers so JARVIS can identify admins correctly.
+        LIDs are auto-discovered when messages arrive, but you can also add them manually.
+      </div>
+      <div class="control-group" style="margin-bottom:10px;">
+        <input id="lidInput" placeholder="LID (e.g., 47687122567393)" style="padding:6px 10px;background:var(--bg);color:var(--accent);border:1px solid var(--border);font-family:inherit;font-size:12px;width:200px;border-radius:3px;">
+        <input id="lidPhoneInput" placeholder="Phone (e.g., 60138845477)" style="padding:6px 10px;background:var(--bg);color:var(--accent);border:1px solid var(--border);font-family:inherit;font-size:12px;width:180px;border-radius:3px;">
+        <button class="btn-success" onclick="addLidMapping()">Add Mapping</button>
+      </div>
+      <table>
+        <thead><tr><th>LID</th><th>Phone</th><th>Admin?</th><th>Action</th></tr></thead>
+        <tbody id="lidMapTable">
+          <tr><td colspan="4" style="color:var(--dim)">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card full" style="margin-top:12px;">
       <h2>Action Log</h2>
       <div class="log" id="actionLog"></div>
     </div>
@@ -456,6 +476,7 @@ function switchTab(tab) {
   if (tab === 'messages') loadMessages();
   if (tab === 'customers') searchCustomers();
   if (tab === 'pricing') loadPricing();
+  if (tab === 'controls') loadLidMap();
 }
 
 // --- Refresh ---
@@ -892,6 +913,57 @@ function colorName(hex) {
   if (r < 100 && g > 150 && b < 100) return 'Green';
   if (r > 100 && g > 100 && b > 100) return 'Silver';
   return hex;
+}
+
+// --- LID Mappings ---
+async function loadLidMap() {
+  try {
+    const d = await api('/lid-map');
+    const mappings = d.mappings || [];
+    const tb = document.getElementById('lidMapTable');
+
+    if (mappings.length === 0) {
+      tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim)">No LID mappings yet. They will be auto-discovered when messages arrive from WhatsApp LID users.</td></tr>';
+      return;
+    }
+
+    // Known admin phones for tagging
+    const adminPhones = ['60138606455', '60138845477', '60126565477', '601110906498', '60167212498'];
+    tb.innerHTML = mappings.map(m => {
+      const isAdmin = adminPhones.some(p => m.phone.includes(p) || p.includes(m.phone));
+      return `<tr>
+        <td style="font-size:11px;">${m.lid}</td>
+        <td>${m.phone}</td>
+        <td>${isAdmin ? '<span class="tag tag-blue">Admin</span>' : '<span class="tag tag-green">Customer</span>'}</td>
+        <td><button class="btn-danger" onclick="deleteLidMapping('${m.lid}')" style="font-size:10px;padding:2px 8px;">Delete</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) { logAction('LID map load failed: ' + e.message, true); }
+}
+
+async function addLidMapping() {
+  const lid = document.getElementById('lidInput').value.trim();
+  const phone = document.getElementById('lidPhoneInput').value.trim();
+  if (!lid || !phone) { logAction('LID and phone are both required', true); return; }
+
+  try {
+    const r = await api('/lid-map', { method: 'POST', body: { lid, phone } });
+    if (r.error) throw new Error(r.error);
+    logAction('LID mapping added: ' + lid + ' -> ' + phone);
+    document.getElementById('lidInput').value = '';
+    document.getElementById('lidPhoneInput').value = '';
+    loadLidMap();
+  } catch (e) { logAction('Add LID mapping failed: ' + e.message, true); }
+}
+
+async function deleteLidMapping(lid) {
+  if (!confirm('Delete LID mapping for ' + lid + '?')) return;
+  try {
+    const r = await api('/lid-map', { method: 'DELETE', body: { lid } });
+    if (r.error) throw new Error(r.error);
+    logAction('LID mapping deleted: ' + lid);
+    loadLidMap();
+  } catch (e) { logAction('Delete LID mapping failed: ' + e.message, true); }
 }
 
 // --- Log ---
