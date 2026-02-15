@@ -8,22 +8,33 @@ const { INTENTS, PRIORITY } = require('./intent-reader');
 const policies = require('./policies');
 const notifications = require('./notifications');
 const customerFlows = require('./customer-flows');
-const { agreementsService, fleetService, dataStoreService, syncEngine } = require('../supabase/services');
+const bookingFlow = require('./booking-flow');
+const reminders = require('./reminders');
+const adminTools = require('./admin-tools');
+const jarvisVoice = require('../voice/jarvis-voice');
+const { agreementsService, fleetService, syncEngine } = require('../supabase/services');
 
 /**
  * JARVIS Brain - The central orchestrator.
  *
  * Operational rules (from bot_data_store jarvis_operational_rules_complete):
  * 1. Intent reader runs on EVERY message
- * 2. HIGH/CRITICAL → escalate to superadmin Vir
- * 3. ALL customer interactions → forward to Vir
+ * 2. HIGH/CRITICAL -> escalate to superadmin Vir
+ * 3. ALL customer interactions -> forward to Vir
  * 4. Car plates HIDDEN from customers, shown to admins only
  * 5. Voice notes ONLY to admins, customers get text-only
  * 6. Match customer language (Malay/English/Chinese/Tamil)
  * 7. >5 bookings = regular customer, priority treatment
  * 8. Query bot_data_store before answering operational questions
  * 9. Format: *bold headers* + ```monospace data```
- * 10. No corporate BS — get straight to data
+ * 10. No corporate BS -- get straight to data
+ *
+ * New features:
+ * - Booking creation workflow (guided step-by-step)
+ * - Reminder system (natural language scheduling)
+ * - Admin power tools (boss-only: /tool commands)
+ * - Voice calling (JARVIS voice messages)
+ * - Response caching for common queries
  */
 class JarvisBrain {
   constructor() {
@@ -34,9 +45,9 @@ class JarvisBrain {
   async process(msg) {
     const { phone, body, type, media, name } = msg;
 
-    // ─── 1. Identify user ─────────────────────────────────
+    // --- 1. Identify user ---
     const isAdmin = syncEngine.isAdmin(phone) || policies.isAdmin(phone);
-    const isBoss = msg.isBoss || false;
+    const isBoss = adminTools.isBoss(phone) || msg.isBoss || false;
     const existingCustomer = syncEngine.lookupCustomer(phone);
     const customerHistory = existingCustomer
       ? await agreementsService.getCustomerHistory(phone).catch(() => null)
@@ -55,23 +66,36 @@ class JarvisBrain {
       }
     }
 
-    // ─── 2. Intent classification (EVERY message) ─────────
+    // --- 2. Intent classification (EVERY message) ---
     const classification = intentReader.classify(body, type, isAdmin);
     this.conversation.setIntent(phone, classification.intent);
 
-    console.log(`[JARVIS] ${isAdmin ? 'ADMIN' : 'CUSTOMER'} ${name}(${phone}) → ${classification.intent} [${classification.priority}]`);
+    console.log(`[JARVIS] ${isAdmin ? (isBoss ? 'BOSS' : 'ADMIN') : 'CUSTOMER'} ${name}(${phone}) -> ${classification.intent} [${classification.priority}]`);
 
-    // ─── 3. Escalation check ──────────────────────────────
+    // --- 3. Escalation check ---
     if (!isAdmin && intentReader.shouldEscalate(classification)) {
       notifications.onEscalation(phone, name, body, classification).catch(err =>
         console.error('[JARVIS] Escalation failed:', err.message)
       );
     }
 
-    // ─── 4. Process message ───────────────────────────────
+    // --- 4. Process message ---
     const response = { text: null, voice: null, image: null, actions: [], intent: classification.intent };
 
     try {
+      // Check if in active booking flow
+      if (body && bookingFlow.isActive(phone)) {
+        const flowResult = bookingFlow.process(phone, body, name);
+        if (flowResult) {
+          response.text = flowResult;
+          this.conversation.addMessage(phone, 'assistant', response.text);
+          if (!isAdmin) {
+            notifications.onJarvisResponse(phone, name, body, response.text, classification).catch(() => {});
+          }
+          return response;
+        }
+      }
+
       if (type === 'ptt' && media) {
         await this._handleVoice(msg, response, isAdmin, existingCustomer);
       } else if ((type === 'image' || type === 'sticker') && media) {
@@ -86,7 +110,7 @@ class JarvisBrain {
         this.conversation.addMessage(phone, 'assistant', response.text);
       }
 
-      // ─── 5. Forward ALL customer interactions to Vir ──
+      // --- 5. Forward ALL customer interactions to Vir ---
       if (!isAdmin && response.text) {
         notifications.onJarvisResponse(phone, name, body, response.text, classification).catch(err =>
           console.error('[JARVIS] Notification failed:', err.message)
@@ -103,7 +127,7 @@ class JarvisBrain {
     return response;
   }
 
-  // ─── Text Handler ──────────────────────────────────────────
+  // --- Text Handler ---
 
   async _handleText(msg, response, isAdmin, isBoss, existingCustomer, customerHistory, classification) {
     const { phone, body, name } = msg;
@@ -111,21 +135,39 @@ class JarvisBrain {
     const conv = this.conversation.getOrCreate(phone);
     const lang = conv.language || 'en';
 
-    // ─── Admin commands ──────────────────────────────────
-    const command = this._parseCommand(body, isAdmin);
-    if (command) return this._handleCommand(command, msg, response, isAdmin);
+    // --- Admin commands ---
+    const command = this._parseCommand(body, isAdmin, isBoss);
+    if (command) return this._handleCommand(command, msg, response, isAdmin, isBoss);
 
-    // ─── Intent-based quick responses ────────────────────
+    // --- Reminder detection ---
+    if (/remind\s*(me|us)?\s/i.test(body)) {
+      const result = reminders.createFromText(body, phone, name);
+      if (result.error) {
+        response.text = `*Reminder*\n\`\`\`${result.error}\`\`\``;
+      } else {
+        const dueStr = result.dueAt.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+        response.text = `*Reminder Set*\n\`\`\`\n#${result.id}: ${result.text}\nDue: ${dueStr}\n${result.repeat ? `Repeats: ${result.repeat}` : 'One-time'}\n\`\`\``;
+      }
+      return;
+    }
+
+    // --- Booking start detection ---
+    if (/^(book|tempah|nak sewa|i want to (book|rent))/i.test(body) && !bookingFlow.isActive(phone)) {
+      response.text = bookingFlow.start(phone, name || existingCustomer?.customer_name, isAdmin);
+      return;
+    }
+
+    // --- Intent-based quick responses ---
     const quickResponse = await this._handleIntentDirect(classification, msg, response, isAdmin, existingCustomer, customerHistory, lang);
     if (quickResponse) return;
 
-    // ─── First-time greeting for new customers ───────────
+    // --- First-time greeting for new customers ---
     if (!isAdmin && !existingCustomer && classification.intent === INTENTS.GREETING) {
       response.text = customerFlows.newCustomerWelcome(name, lang);
       return;
     }
 
-    // ─── Returning customer greeting ─────────────────────
+    // --- Returning customer greeting ---
     if (!isAdmin && existingCustomer && classification.intent === INTENTS.GREETING) {
       response.text = customerFlows.returningCustomerGreeting(
         existingCustomer.customer_name,
@@ -136,12 +178,13 @@ class JarvisBrain {
       return;
     }
 
-    // ─── AI-powered response ─────────────────────────────
+    // --- AI-powered response ---
     const personalContext = this._buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification);
 
     const aiResult = await aiRouter.route(body, history, {
       isAdmin,
       systemPrompt: personalContext,
+      intent: classification.intent,
     });
 
     response.text = aiResult.content;
@@ -150,10 +193,8 @@ class JarvisBrain {
     // Voice notes ONLY for admins
     if (isAdmin && body.toLowerCase().includes('report')) {
       try {
-        const voiceResult = await voiceEngine.speak(
-          this._summarizeForVoice(aiResult.content),
-          { language: conv.language || 'en' }
-        );
+        const voiceText = jarvisVoice.formatForVoice(aiResult.content);
+        const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
         response.voice = voiceResult.filePath;
       } catch (err) {
         console.warn('[JARVIS] Voice generation failed:', err.message);
@@ -161,7 +202,7 @@ class JarvisBrain {
     }
   }
 
-  // ─── Intent-based direct responses ───────────────────────
+  // --- Intent-based direct responses ---
 
   async _handleIntentDirect(classification, msg, response, isAdmin, existingCustomer, customerHistory, lang) {
     const { phone, body } = msg;
@@ -172,7 +213,6 @@ class JarvisBrain {
         return true;
 
       case INTENTS.PAYMENT:
-        // Check if sending payment proof (media would be handled separately)
         if (/dah bayar|sudah bayar|已付款|paid|transferred|bank.?in/i.test(body)) {
           response.text = '*Payment Noted*\n```Thank you! Your payment will be verified by our team shortly.```\n\nPlease send proof of payment (screenshot/receipt) if you haven\'t already.';
           notifications.onPaymentProof(phone, msg.name, null).catch(() => {});
@@ -182,18 +222,20 @@ class JarvisBrain {
         return true;
 
       case INTENTS.BOOKING_INQUIRY: {
-        const cache = syncEngine.getCache();
-        const validatedCars = cache.validatedCars || cache.cars;
-        if (isAdmin) {
-          response.text = customerFlows.formatAvailableCarsForAdmin(validatedCars);
+        // Start booking flow instead of just showing cars
+        if (!bookingFlow.isActive(phone)) {
+          response.text = bookingFlow.start(phone, msg.name || existingCustomer?.customer_name, isAdmin);
         } else {
-          response.text = customerFlows.formatAvailableCarsForCustomer(validatedCars, lang);
+          const cache = syncEngine.getCache();
+          const validatedCars = cache.validatedCars || cache.cars;
+          response.text = isAdmin
+            ? customerFlows.formatAvailableCarsForAdmin(validatedCars)
+            : customerFlows.formatAvailableCarsForCustomer(validatedCars, lang);
         }
         return true;
       }
 
       case INTENTS.DELIVERY: {
-        // Try to extract location from message
         const locMatch = body.match(/(?:to|ke|at|di|kat|dari)\s+(\w+(?:\s+\w+)?)/i);
         const location = locMatch ? locMatch[1] : null;
         const fee = location ? policies.getDeliveryFee(location) : null;
@@ -244,7 +286,7 @@ class JarvisBrain {
       }
 
       case INTENTS.EMERGENCY: {
-        response.text = `*🚨 EMERGENCY*\n\`\`\`\n` +
+        response.text = `*EMERGENCY*\n\`\`\`\n` +
           `Our team has been alerted.\n` +
           `Call us NOW: +${policies.admins.businessNumber}\n` +
           `\`\`\`\n\n` +
@@ -261,7 +303,7 @@ class JarvisBrain {
     }
   }
 
-  // ─── Voice Handler ────────────────────────────────────────
+  // --- Voice Handler ---
 
   async _handleVoice(msg, response, isAdmin, existingCustomer) {
     const { phone, media } = msg;
@@ -269,7 +311,6 @@ class JarvisBrain {
     const transcription = await voiceEngine.listen(media.data);
     console.log(`[JARVIS] Voice from ${phone}: "${transcription.text}"`);
 
-    // Process transcribed text
     const textMsg = { ...msg, body: transcription.text, type: 'chat' };
     const customerHistory = existingCustomer
       ? await agreementsService.getCustomerHistory(phone).catch(() => null)
@@ -282,10 +323,10 @@ class JarvisBrain {
     if (isAdmin) {
       const conv = this.conversation.getOrCreate(phone);
       try {
-        const voiceResult = await voiceEngine.speak(
-          this._summarizeForVoice(response.text),
-          { language: conv.language || transcription.language || 'en' }
-        );
+        const voiceText = jarvisVoice.formatForVoice(response.text);
+        const voiceResult = await voiceEngine.speak(voiceText, {
+          language: conv.language || transcription.language || 'en',
+        });
         response.voice = voiceResult.filePath;
       } catch (err) {
         console.warn('[JARVIS] Voice response failed:', err.message);
@@ -293,7 +334,7 @@ class JarvisBrain {
     }
   }
 
-  // ─── Image Handler ────────────────────────────────────────
+  // --- Image Handler ---
 
   async _handleImage(msg, response, isAdmin, classification) {
     const { phone, media, body } = msg;
@@ -302,28 +343,24 @@ class JarvisBrain {
     const analysis = await imageReader.analyze(media.data, prompt);
     response.text = `*Image Analysis:*\n\`\`\`${analysis.description}\`\`\``;
 
-    // Check for payment proof
     if (/pay|bayar|receipt|resit|transfer|bukti/i.test(body || '') || /receipt|payment|transfer/i.test(analysis.description || '')) {
       response.text += `\n\n*Payment proof noted!* Our team will verify shortly.`;
       notifications.onPaymentProof(phone, msg.name, null).catch(() => {});
     }
 
-    // Check for plate (admin only)
     if (analysis.text) {
       const plate = analysis.text.replace(/[^A-Z0-9]/gi, '').trim();
       if (plate.length >= 4) {
         const car = await fleetService.getCarByPlate(plate);
         if (car) {
           if (isAdmin) {
-            // Admins see full plate info
             response.text += `\n\n*Car Found:*\n\`\`\`${car.make} ${car.model} ${car.year || ''}\nPlate: ${car.car_plate}\nStatus: ${car.status}\`\`\``;
             const bookings = await agreementsService.getAgreementsByPlate(plate);
             if (bookings.length > 0) {
               const latest = bookings[0];
-              response.text += `\n\n*Current Booking:*\n\`\`\`${latest.customer_name}\n${latest.start_date} → ${latest.end_date}\`\`\``;
+              response.text += `\n\n*Current Booking:*\n\`\`\`${latest.customer_name}\n${latest.start_date} -> ${latest.end_date}\`\`\``;
             }
           } else {
-            // Customers: NO plates, model only
             response.text += `\n\n*Car:* ${car.make} ${car.model}`;
           }
         }
@@ -331,22 +368,38 @@ class JarvisBrain {
     }
   }
 
-  // ─── Document Handler ──────────────────────────────────────
+  // --- Document Handler ---
 
   async _handleDocument(msg, response, isAdmin, classification) {
     response.text = `*Document Received*\n\`\`\`Thank you! Our team will review your document.\`\`\``;
 
-    // Forward to superadmin
     notifications.notifySuperadmin(
-      `*📄 Document received from ${msg.name} (+${msg.phone})*\n\`\`\`Please review.\`\`\``
+      `*Document received from ${msg.name} (+${msg.phone})*\n\`\`\`Please review.\`\`\``
     ).catch(() => {});
   }
 
-  // ─── Commands ──────────────────────────────────────────────
+  // --- Commands ---
 
-  _parseCommand(text, isAdmin) {
+  _parseCommand(text, isAdmin, isBoss) {
     if (!text) return null;
     const lower = text.toLowerCase().trim();
+
+    // Boss-only tool commands
+    if (lower.startsWith('/tool ') && isBoss) {
+      const parts = text.slice(6).trim().split(/\s+/);
+      return { cmd: 'tool', toolCmd: parts[0], toolArgs: parts.slice(1) };
+    }
+
+    // Reminder commands
+    if (lower === '/reminders' || lower === '/reminder') return { cmd: 'reminders' };
+    if (lower.startsWith('/remind ')) return { cmd: 'remind', text: text.slice(8).trim() };
+    if (lower.match(/^\/delete-reminder\s+(\d+)/)) return { cmd: 'delete-reminder', id: parseInt(lower.match(/\d+/)[0]) };
+
+    // Voice profile
+    if (lower.startsWith('/voice ')) return { cmd: 'voice', profile: text.slice(7).trim() };
+
+    // Booking
+    if (lower === '/book' || lower === '/booking') return { cmd: 'book' };
 
     if (lower === '/status' || lower === '/health') return { cmd: 'status' };
     if (lower === '/cars' || lower === '/fleet') return { cmd: 'fleet' };
@@ -365,21 +418,82 @@ class JarvisBrain {
     if (lower === '/fleet-report' && isAdmin) return { cmd: 'fleet-report' };
     if (lower === '/expiring' && isAdmin) return { cmd: 'expiring' };
     if (lower === '/overdue' && isAdmin) return { cmd: 'overdue' };
-    if (lower === '/help') return { cmd: 'help', isAdmin };
+    if (lower === '/help') return { cmd: 'help', isAdmin, isBoss };
 
     return null;
   }
 
-  async _handleCommand(command, msg, response, isAdmin) {
+  async _handleCommand(command, msg, response, isAdmin, isBoss) {
     switch (command.cmd) {
+      // --- Boss-only tools ---
+      case 'tool': {
+        const result = await adminTools.execute(command.toolCmd, command.toolArgs, msg.phone, msg.name);
+        if (result.type === 'site') {
+          response.text = `*Site Generated*\n\`\`\`\n${result.description}\n${result.html.length} chars of HTML\n\`\`\`\n\nHTML code is ready. Use /tool export to download.`;
+          response.siteHtml = result.html;
+        } else {
+          response.text = `*Tool: ${command.toolCmd}*\n\`\`\`\n${JSON.stringify(result, null, 2).slice(0, 3000)}\n\`\`\``;
+        }
+        break;
+      }
+
+      // --- Reminders ---
+      case 'reminders': {
+        const list = isAdmin ? reminders.listAll() : reminders.listForPhone(msg.phone);
+        response.text = reminders.formatList(list);
+        break;
+      }
+      case 'remind': {
+        const result = reminders.createFromText(command.text, msg.phone, msg.name);
+        if (result.error) {
+          response.text = `*Reminder Error*\n\`\`\`${result.error}\`\`\``;
+        } else {
+          const dueStr = result.dueAt.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' });
+          response.text = `*Reminder #${result.id} Set*\n\`\`\`\n${result.text}\nDue: ${dueStr}\n${result.repeat ? `Repeats: ${result.repeat}` : ''}\n\`\`\``;
+        }
+        break;
+      }
+      case 'delete-reminder': {
+        const deleted = reminders.delete(command.id, msg.phone);
+        response.text = deleted
+          ? `*Reminder #${command.id} deleted*`
+          : `*Reminder #${command.id} not found*`;
+        break;
+      }
+
+      // --- Voice profile ---
+      case 'voice': {
+        if (!isAdmin) { response.text = 'Admin only.'; break; }
+        if (command.profile === 'list') {
+          const profiles = jarvisVoice.listProfiles();
+          response.text = `*Voice Profiles*\n\`\`\`\n${profiles.map(p => `${p.active ? '> ' : '  '}${p.id} (${p.name}) - ${p.style}`).join('\n')}\n\`\`\``;
+        } else if (jarvisVoice.setProfile(command.profile)) {
+          response.text = `*Voice changed to ${jarvisVoice.getProfile().name}*`;
+        } else {
+          response.text = `Unknown voice. Available: ${jarvisVoice.listProfiles().map(p => p.id).join(', ')}`;
+        }
+        break;
+      }
+
+      // --- Booking ---
+      case 'book': {
+        response.text = bookingFlow.start(msg.phone, msg.name, isAdmin);
+        break;
+      }
+
+      // --- Existing commands ---
       case 'status': {
         const stats = aiRouter.getStats();
         const convStats = this.conversation.getStats();
         const cache = syncEngine.getCache();
+        const schedStats = require('./scheduler').getStats();
         response.text = `*JARVIS Status*\n\`\`\`\n` +
-          `AI: Local ${stats.local} | Cloud ${stats.cloud} | Fallback ${stats.fallback}\n` +
+          `AI: Local ${stats.local} | Cloud ${stats.cloud} | Gemini ${stats.gemini} | Cache ${stats.cacheHits}\n` +
+          `Fallback: ${stats.fallback} | Tools: ${stats.toolCalls}\n` +
           `Chats: ${convStats.activeConversations}\n` +
           `Cars: ${cache.cars.length} | Bookings: ${cache.agreements.length}\n` +
+          `Reminders: ${schedStats.reminders.active} active\n` +
+          `Voice: ${jarvisVoice.getProfile().name}\n` +
           `Last sync: ${cache.lastSync ? cache.lastSync.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' }) : 'never'}\n` +
           `\`\`\``;
         break;
@@ -403,7 +517,7 @@ class JarvisBrain {
         } else {
           response.text = `*Active Bookings (${active.length})*\n\`\`\`\n` +
             active.map(a =>
-              `${isAdmin ? a.car_plate + ' ' : ''}${a.customer_name}\n  ${a.start_date} → ${a.end_date} [${a.status}]`
+              `${isAdmin ? a.car_plate + ' ' : ''}${a.customer_name}\n  ${a.start_date} -> ${a.end_date} [${a.status}]`
             ).join('\n') +
             `\n\`\`\``;
         }
@@ -430,42 +544,15 @@ class JarvisBrain {
         response.text = policies.formatPricingForCustomer();
         break;
       }
-      case 'report': {
-        response.text = await reports.dailySummary();
-        break;
-      }
-      case 'report1': {
-        response.text = await reports.sortedByTime();
-        break;
-      }
-      case 'report2': {
-        response.text = await reports.sortedByContact();
-        break;
-      }
-      case 'report3': {
-        response.text = await reports.sortedByTimeslot();
-        break;
-      }
-      case 'report4': {
-        response.text = await reports.followUpReport();
-        break;
-      }
-      case 'report5': {
-        response.text = await reports.availableReport();
-        break;
-      }
-      case 'report6': {
-        response.text = await reports.summaryReport();
-        break;
-      }
-      case 'fleet-report': {
-        response.text = await reports.fleetReport();
-        break;
-      }
-      case 'earnings': {
-        response.text = await reports.earningsReport();
-        break;
-      }
+      case 'report': { response.text = await reports.dailySummary(); break; }
+      case 'report1': { response.text = await reports.sortedByTime(); break; }
+      case 'report2': { response.text = await reports.sortedByContact(); break; }
+      case 'report3': { response.text = await reports.sortedByTimeslot(); break; }
+      case 'report4': { response.text = await reports.followUpReport(); break; }
+      case 'report5': { response.text = await reports.availableReport(); break; }
+      case 'report6': { response.text = await reports.summaryReport(); break; }
+      case 'fleet-report': { response.text = await reports.fleetReport(); break; }
+      case 'earnings': { response.text = await reports.earningsReport(); break; }
       case 'expiring': {
         const expiring = await agreementsService.getExpiringAgreements(3);
         if (expiring.length === 0) {
@@ -482,7 +569,7 @@ class JarvisBrain {
         if (overdue.length === 0) {
           response.text = '*Overdue Returns*\n```None overdue - all good!```';
         } else {
-          response.text = `*🚨 Overdue Returns (${overdue.length})*\n\`\`\`\n` +
+          response.text = `*Overdue Returns (${overdue.length})*\n\`\`\`\n` +
             overdue.map(a => `${a.car_plate} - ${a.customer_name}\n  Was due: ${a.end_date}\n  Phone: ${a.customer_phone}`).join('\n') +
             `\n\`\`\``;
         }
@@ -490,26 +577,36 @@ class JarvisBrain {
       }
       case 'help': {
         response.text = `*JARVIS Commands*\n\`\`\`\n` +
-          `/cars — Fleet status\n` +
-          `/available — Available cars\n` +
-          `/bookings — Active bookings\n` +
-          `/pricing — Rate card\n` +
-          `/search <query> — Search\n` +
+          `/cars -- Fleet status\n` +
+          `/available -- Available cars\n` +
+          `/bookings -- Active bookings\n` +
+          `/pricing -- Rate card\n` +
+          `/book -- Start booking\n` +
+          `/search <query> -- Search\n` +
+          `/reminders -- Your reminders\n` +
+          `/remind <text> -- Set reminder\n` +
           `\`\`\`\n`;
         if (command.isAdmin) {
           response.text += `\n*Admin Commands:*\n\`\`\`\n` +
-            `/report — Daily summary\n` +
-            `/report1 — Sorted by time\n` +
-            `/report2 — Sorted by contact\n` +
-            `/report3 — Sorted by timeslot\n` +
-            `/report4 — Follow-up report\n` +
-            `/report5 — Available cars report\n` +
-            `/report6 — Summary report\n` +
-            `/fleet-report — Fleet validation\n` +
-            `/earnings — Revenue\n` +
-            `/expiring — Expiring rentals\n` +
-            `/overdue — Overdue returns\n` +
-            `/status — System health\n` +
+            `/report -- Daily summary\n` +
+            `/report1-6 -- Specific reports\n` +
+            `/fleet-report -- Fleet validation\n` +
+            `/earnings -- Revenue\n` +
+            `/expiring -- Expiring rentals\n` +
+            `/overdue -- Overdue returns\n` +
+            `/voice <profile> -- Change voice\n` +
+            `/voice list -- List voices\n` +
+            `/status -- System health\n` +
+            `\`\`\`\n`;
+        }
+        if (command.isBoss) {
+          response.text += `\n*Boss Tools:*\n\`\`\`\n` +
+            `/tool help -- All power tools\n` +
+            `/tool site <desc> -- Generate site\n` +
+            `/tool broadcast <msg> -- Message all\n` +
+            `/tool export <type> -- Export data\n` +
+            `/tool config -- Show config\n` +
+            `/tool system -- System info\n` +
             `\`\`\`\n`;
         }
         response.text += `\nOr chat naturally in Malay, English, Chinese, or Tamil!`;
@@ -518,19 +615,18 @@ class JarvisBrain {
     }
   }
 
-  // ─── Helpers ───────────────────────────────────────────────
+  // --- Helpers ---
 
   _buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification) {
     const parts = [
       'You are JARVIS, AI assistant for JRV Car Rental, Seremban, Malaysia.',
       'Format: *bold headers* + ```monospace data```.',
-      'No corporate BS — get straight to data.',
+      'No corporate BS -- get straight to data.',
       'Match the customer\'s language (Malay/English/Chinese/Tamil).',
       `Business WhatsApp: +${policies.admins.businessNumber}`,
       '',
     ];
 
-    // Inject full policy context
     parts.push(policies.buildPolicyContext());
     parts.push('');
 
@@ -543,7 +639,7 @@ class JarvisBrain {
       }
     } else {
       parts.push('The user is a CUSTOMER.');
-      parts.push('NEVER share car plates with customers — use model names only.');
+      parts.push('NEVER share car plates with customers -- use model names only.');
       parts.push('NEVER share other customer details.');
       parts.push('NEVER share admin phone numbers.');
 
@@ -565,7 +661,6 @@ class JarvisBrain {
     if (name) parts.push(`WhatsApp name: "${name}"`);
     if (classification) parts.push(`Current intent: ${classification.intent} [${classification.priority}]`);
 
-    // Add live fleet data summary
     const cache = syncEngine.getCache();
     if (cache.lastSync) {
       const validated = cache.validatedCars || cache.cars;
@@ -585,17 +680,6 @@ class JarvisBrain {
     }
 
     return parts.join('\n');
-  }
-
-  _summarizeForVoice(text) {
-    if (!text) return '';
-    return text
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\n{2,}/g, '. ')
-      .replace(/\n/g, '. ')
-      .slice(0, 500);
   }
 }
 

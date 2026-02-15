@@ -20,6 +20,13 @@ const config = {
     thinkingModel: process.env.KIMI_THINKING_MODEL || 'kimi-k2-thinking',
   },
 
+  // Google Gemini (fallback cloud AI)
+  // Get key: https://aistudio.google.com/apikey
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY,
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  },
+
   // Local AI (Ollama on Jetson - simple tasks)
   localAI: {
     url: process.env.LOCAL_AI_URL || 'http://localhost:11434',
@@ -71,11 +78,18 @@ const config = {
 const missing = [];
 if (!config.supabase.url) missing.push('SUPABASE_URL');
 if (!config.supabase.key) missing.push('SUPABASE_KEY');
-if (!config.kimi.apiKey) missing.push('KIMI_API_KEY');
 if (missing.length > 0) {
   console.error(`Missing required env vars: ${missing.join(', ')}`);
   console.error('Copy .env.example to .env and fill in the values.');
   process.exit(1);
+}
+
+// Warn about optional but recommended keys
+if (!config.kimi.apiKey || config.kimi.apiKey === 'placeholder') {
+  console.warn('[Config] KIMI_API_KEY not set. Cloud AI will use Gemini fallback or local only.');
+}
+if (!config.gemini.apiKey) {
+  console.warn('[Config] GEMINI_API_KEY not set. No Gemini fallback available.');
 }
 
 module.exports = config;

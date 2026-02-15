@@ -1,0 +1,331 @@
+/**
+ * Admin Power Tools - Restricted capabilities for RJ only (+60138606455).
+ *
+ * These are MCP-style tools that ONLY the boss (RJ) can access:
+ * - Site generation (HTML/CSS)
+ * - Direct Supabase queries
+ * - System configuration
+ * - AI model switching
+ * - Broadcast messages
+ * - Data export
+ * - Reminder management for all users
+ */
+
+const policies = require('./policies');
+const reminders = require('./reminders');
+const { syncEngine, dataStoreService, fleetService, agreementsService } = require('../supabase/services');
+
+const BOSS_PHONE = '60138606455';
+
+class AdminTools {
+  constructor() {
+    this.whatsapp = null;
+  }
+
+  init(whatsappChannel) {
+    this.whatsapp = whatsappChannel;
+  }
+
+  /**
+   * Check if phone has boss-level access.
+   */
+  isBoss(phone) {
+    const clean = phone.replace(/\D/g, '');
+    return clean.includes(BOSS_PHONE) || BOSS_PHONE.includes(clean);
+  }
+
+  /**
+   * Parse and execute admin tool commands.
+   * Format: /tool <command> [args]
+   */
+  async execute(command, args, phone, name) {
+    if (!this.isBoss(phone)) {
+      return { error: 'Access denied. Boss-only command.' };
+    }
+
+    switch (command) {
+      case 'site':
+      case 'generate-site':
+        return this._generateSite(args);
+
+      case 'broadcast':
+        return this._broadcast(args);
+
+      case 'export':
+        return this._exportData(args);
+
+      case 'config':
+        return this._showConfig();
+
+      case 'set':
+        return this._setConfig(args);
+
+      case 'sql':
+      case 'query':
+        return this._queryData(args);
+
+      case 'reminder-all':
+        return this._listAllReminders();
+
+      case 'clear-reminders':
+        return this._clearReminders(args);
+
+      case 'system':
+        return this._systemInfo();
+
+      case 'tools':
+      case 'help':
+        return this._toolsHelp();
+
+      default:
+        return { error: `Unknown tool: ${command}`, help: 'Use /tool help for available commands' };
+    }
+  }
+
+  /**
+   * Generate a simple site/page (HTML).
+   */
+  async _generateSite(args) {
+    const description = args.join(' ') || 'JRV Car Rental landing page';
+
+    // Use AI to generate the site
+    const aiRouter = require('../ai/router');
+    const prompt = `Generate a complete, modern, responsive HTML page with inline CSS and JavaScript for: "${description}".
+Requirements:
+- Single HTML file with all CSS/JS inline
+- Mobile-responsive design
+- Professional look with dark/modern theme
+- JRV Car Rental branding (Seremban, Malaysia)
+- WhatsApp link: +60126565477
+- Include only the HTML code, no explanations`;
+
+    const result = await aiRouter.route(prompt, [], { forceCloud: true, isAdmin: true });
+
+    // Extract HTML from response
+    let html = result.content;
+    const htmlMatch = html.match(/```html\n([\s\S]*?)```/);
+    if (htmlMatch) html = htmlMatch[1];
+
+    return {
+      type: 'site',
+      html,
+      description,
+      note: 'HTML generated. Save as .html file or host on any server.',
+    };
+  }
+
+  /**
+   * Broadcast message to all admins or specific groups.
+   */
+  async _broadcast(args) {
+    if (args.length === 0) {
+      return { error: 'Usage: /tool broadcast <message>' };
+    }
+
+    const message = args.join(' ');
+    const sent = [];
+
+    for (const admin of policies.admins.list) {
+      if (this.whatsapp && this.whatsapp.isConnected && this.whatsapp.isConnected()) {
+        try {
+          await this.whatsapp.sendText(`${admin.phone}@c.us`, `*Broadcast from Boss:*\n${message}`);
+          sent.push(admin.name);
+        } catch (err) {
+          console.error(`[AdminTools] Broadcast to ${admin.name} failed:`, err.message);
+        }
+      } else {
+        console.log(`[AdminTools → ${admin.name}] ${message}`);
+        sent.push(`${admin.name} (logged)`);
+      }
+    }
+
+    return { sent, message, count: sent.length };
+  }
+
+  /**
+   * Export data as formatted text.
+   */
+  async _exportData(args) {
+    const type = args[0] || 'all';
+
+    switch (type) {
+      case 'cars':
+      case 'fleet': {
+        const cache = syncEngine.getCache();
+        return {
+          type: 'fleet',
+          count: cache.cars.length,
+          data: cache.cars.map(c => ({
+            plate: c.car_plate,
+            make: c.make,
+            model: c.model,
+            status: c.status,
+            daily_rate: c.daily_rate,
+          })),
+        };
+      }
+      case 'bookings':
+      case 'agreements': {
+        const active = await agreementsService.getActiveAgreements();
+        return {
+          type: 'agreements',
+          count: active.length,
+          data: active,
+        };
+      }
+      case 'store': {
+        const cache = syncEngine.getCache();
+        return {
+          type: 'bot_data_store',
+          count: cache.store?.length || 0,
+          data: cache.store || [],
+        };
+      }
+      default: {
+        const cache = syncEngine.getCache();
+        return {
+          fleet: cache.cars.length,
+          agreements: cache.agreements.length,
+          store: cache.store?.length || 0,
+          lastSync: cache.lastSync,
+        };
+      }
+    }
+  }
+
+  /**
+   * Show current system configuration.
+   */
+  _showConfig() {
+    const config = require('../config');
+    return {
+      mode: config.mode,
+      kimi: { model: config.kimi.model, url: config.kimi.apiUrl },
+      gemini: { model: config.gemini?.model || 'not configured' },
+      localAI: { model: config.localAI.model, url: config.localAI.url },
+      tts: { voice: config.tts.edgeVoice },
+      admins: policies.admins.list.map(a => `${a.name}(${a.phone})`),
+    };
+  }
+
+  /**
+   * Set runtime configuration.
+   */
+  _setConfig(args) {
+    if (args.length < 2) {
+      return { error: 'Usage: /tool set <key> <value>\nKeys: voice, model, mode' };
+    }
+
+    const [key, ...valueParts] = args;
+    const value = valueParts.join(' ');
+    const config = require('../config');
+
+    switch (key) {
+      case 'voice':
+        config.tts.edgeVoice = value;
+        return { set: 'tts.edgeVoice', value };
+      case 'model':
+        config.kimi.model = value;
+        return { set: 'kimi.model', value };
+      case 'mode':
+        config.mode = value;
+        return { set: 'mode', value };
+      default:
+        return { error: `Unknown config key: ${key}` };
+    }
+  }
+
+  /**
+   * Query Supabase data.
+   */
+  async _queryData(args) {
+    const query = args.join(' ').toLowerCase();
+
+    if (query.includes('car') || query.includes('fleet')) {
+      const stats = await fleetService.getFleetStats();
+      return stats;
+    }
+    if (query.includes('expir')) {
+      const expiring = await agreementsService.getExpiringAgreements(7);
+      return { expiring: expiring.length, data: expiring };
+    }
+    if (query.includes('overdue')) {
+      const overdue = await agreementsService.getOverdueAgreements();
+      return { overdue: overdue.length, data: overdue };
+    }
+    if (query.includes('store') || query.includes('data')) {
+      const cache = syncEngine.getCache();
+      return { store_entries: cache.store?.length || 0 };
+    }
+
+    return { error: `Unknown query: "${args.join(' ')}"`, hint: 'Try: cars, fleet, expiring, overdue, store' };
+  }
+
+  /**
+   * List all reminders (across all users).
+   */
+  _listAllReminders() {
+    const all = reminders.listAll();
+    return {
+      total: all.length,
+      reminders: all.map(r => ({
+        id: r.id,
+        text: r.text,
+        phone: r.phone,
+        name: r.name,
+        dueAt: r.dueAt,
+        repeat: r.repeat,
+      })),
+    };
+  }
+
+  /**
+   * Clear reminders for a specific phone.
+   */
+  _clearReminders(args) {
+    const phone = args[0];
+    if (!phone) {
+      return { error: 'Usage: /tool clear-reminders <phone>' };
+    }
+    const count = reminders.deleteAll(phone);
+    return { cleared: count, phone };
+  }
+
+  /**
+   * System information.
+   */
+  _systemInfo() {
+    const os = require('os');
+    return {
+      platform: os.platform(),
+      arch: os.arch(),
+      cpus: os.cpus().length,
+      totalMemory: `${Math.round(os.totalmem() / 1024 / 1024)}MB`,
+      freeMemory: `${Math.round(os.freemem() / 1024 / 1024)}MB`,
+      uptime: `${Math.round(os.uptime() / 3600)}h`,
+      nodeVersion: process.version,
+    };
+  }
+
+  /**
+   * Help text for admin tools.
+   */
+  _toolsHelp() {
+    return {
+      commands: {
+        '/tool site <description>': 'Generate HTML site',
+        '/tool broadcast <message>': 'Message all admins',
+        '/tool export <cars|bookings|store|all>': 'Export data',
+        '/tool config': 'Show configuration',
+        '/tool set <key> <value>': 'Change setting',
+        '/tool query <type>': 'Query Supabase data',
+        '/tool reminder-all': 'List all reminders',
+        '/tool clear-reminders <phone>': 'Clear reminders',
+        '/tool system': 'System info',
+      },
+      note: 'Boss-only commands. Access restricted to +60138606455.',
+    };
+  }
+}
+
+module.exports = new AdminTools();

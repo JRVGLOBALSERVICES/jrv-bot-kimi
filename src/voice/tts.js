@@ -2,13 +2,19 @@ const config = require('../config');
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const jarvisVoice = require('./jarvis-voice');
 
 /**
- * Text-to-Speech Engine
+ * Text-to-Speech Engine with JARVIS Voice Profile
  *
  * Priority chain:
- * 1. Piper TTS (local on Jetson) — fast, offline, customizable voice
- * 2. Edge TTS (free Microsoft TTS) — good quality, needs internet
+ * 1. Piper TTS (local on Jetson) — fast, offline, customizable
+ * 2. Edge TTS (free Microsoft TTS) — Iron Man JARVIS voice (en-GB-RyanNeural)
+ *
+ * Voice profiles defined in jarvis-voice.js:
+ *   - jarvis: British male, slightly deep, calm (Iron Man style)
+ *   - friday: Female assistant
+ *   - casual: Friendly male
  */
 class TTSEngine {
   constructor() {
@@ -19,31 +25,25 @@ class TTSEngine {
 
   /**
    * Convert text to speech audio file.
-   * @param {string} text - Text to speak
-   * @param {object} options
-   * @param {string} options.voice - Voice name/id
-   * @param {string} options.language - 'ms' or 'en'
-   * @param {number} options.speed - Speech rate (0.5 to 2.0)
-   * @returns {{ filePath: string, duration: number, engine: string }}
+   * Uses JARVIS voice profile by default.
    */
   async speak(text, options = {}) {
-    const { language = 'ms', speed = 1.0 } = options;
+    const { language = 'en', speed = null } = options;
 
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
 
     const outputPath = path.join(this.outputDir, `tts_${Date.now()}.mp3`);
+    const voiceSpeed = speed || jarvisVoice.getSpeed();
 
     try {
-      // Try Piper TTS (local) first
-      const result = await this._piperLocal(text, outputPath, language, speed);
+      const result = await this._piperLocal(text, outputPath, language, voiceSpeed);
       return result;
     } catch (localErr) {
       console.warn('[TTS] Local Piper failed:', localErr.message);
       try {
-        // Fallback to Edge TTS
-        const result = await this._edgeTTS(text, outputPath, language, speed);
+        const result = await this._edgeTTS(text, outputPath, language, voiceSpeed);
         return result;
       } catch (edgeErr) {
         console.error('[TTS] All TTS engines failed:', edgeErr.message);
@@ -53,18 +53,12 @@ class TTSEngine {
   }
 
   async _piperLocal(text, outputPath, language, speed) {
-    // Piper TTS server (local HTTP API)
     const voice = language === 'ms' ? 'ms_MY-osman-medium' : 'en_US-amy-medium';
 
     const response = await fetch(`${this.localUrl}/api/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        voice,
-        speed,
-        output_format: 'mp3',
-      }),
+      body: JSON.stringify({ text, voice, speed, output_format: 'mp3' }),
     });
 
     if (!response.ok) {
@@ -82,8 +76,8 @@ class TTSEngine {
   }
 
   async _edgeTTS(text, outputPath, language, speed) {
-    // Edge TTS via command line (edge-tts npm or Python package)
-    const voice = language === 'ms' ? 'ms-MY-YasminNeural' : 'en-US-JennyNeural';
+    // Use JARVIS voice profile for voice selection
+    const voice = jarvisVoice.getVoice(language);
     const rateStr = speed !== 1.0 ? `--rate=${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%` : '';
 
     try {
@@ -114,11 +108,11 @@ asyncio.run(main())
       filePath: outputPath,
       duration: this._estimateDuration(text, speed),
       engine: 'edge-tts',
+      voice,
     };
   }
 
   _estimateDuration(text, speed) {
-    // Rough estimate: ~150 words per minute at speed 1.0
     const words = text.split(/\s+/).length;
     return Math.ceil((words / 150) * 60 / speed);
   }
@@ -128,7 +122,6 @@ asyncio.run(main())
       const res = await fetch(`${this.localUrl}/api/voices`);
       return res.ok;
     } catch {
-      // Check if edge-tts CLI exists
       try {
         execSync('which edge-tts 2>/dev/null || which python3 2>/dev/null');
         return true;

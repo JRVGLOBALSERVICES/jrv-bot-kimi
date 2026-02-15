@@ -7,24 +7,38 @@
  * 3. Send daily summary report to superadmin
  * 4. Cleanup expired conversations
  * 5. Re-sync data periodically
+ * 6. Check and fire reminders
+ * 7. Auto-call expiring customers (voice message)
  */
 
 const { agreementsService } = require('../supabase/services');
-const { daysBetween, todayMYT, formatMYT } = require('../utils/time');
+const { daysBetween, todayMYT } = require('../utils/time');
 const notifications = require('./notifications');
 const customerFlows = require('./customer-flows');
 const conversation = require('./conversation');
 const reports = require('./reports');
+const reminders = require('./reminders');
 
 class Scheduler {
   constructor() {
     this.tasks = [];
     this.running = false;
     this.whatsapp = null;
+    this.caller = null;
   }
 
   init(whatsappChannel) {
     this.whatsapp = whatsappChannel;
+    reminders.init(whatsappChannel);
+
+    // Initialize caller if available
+    try {
+      this.caller = require('../voice/caller');
+      this.caller.init(whatsappChannel);
+      this.caller.start();
+    } catch (err) {
+      console.warn('[Scheduler] Voice caller not available:', err.message);
+    }
   }
 
   start() {
@@ -38,11 +52,14 @@ class Scheduler {
     // Overdue check: every 2 hours
     this.tasks.push(setInterval(() => this._checkOverdueReturns(), 2 * 60 * 60 * 1000));
 
-    // Daily report: every day at 8am MYT (check every hour)
+    // Daily report: every hour (fires at 8am MYT)
     this.tasks.push(setInterval(() => this._dailyReportCheck(), 60 * 60 * 1000));
 
     // Conversation cleanup: every 15 minutes
     this.tasks.push(setInterval(() => conversation.cleanup(), 15 * 60 * 1000));
+
+    // Start reminder checker
+    reminders.start();
 
     // Initial run after 30 seconds
     setTimeout(() => {
@@ -55,6 +72,8 @@ class Scheduler {
     this.running = false;
     this.tasks.forEach(t => clearInterval(t));
     this.tasks = [];
+    reminders.stop();
+    if (this.caller) this.caller.stop();
     console.log('[Scheduler] Stopped.');
   }
 
@@ -71,7 +90,7 @@ class Scheduler {
       for (const agreement of expiring) {
         const daysLeft = daysBetween(todayMYT(), agreement.end_date);
 
-        // Notify customer directly (if WhatsApp available)
+        // Send WhatsApp text message to customer
         if (this.whatsapp && this.whatsapp.isConnected && this.whatsapp.isConnected() && agreement.customer_phone) {
           const msg = customerFlows.expiringRentalMessage(agreement, daysLeft, 'en');
           try {
@@ -79,6 +98,16 @@ class Scheduler {
             console.log(`[Scheduler] Sent expiry reminder to ${agreement.customer_name}`);
           } catch (err) {
             console.warn(`[Scheduler] Failed to contact ${agreement.customer_name}:`, err.message);
+          }
+        }
+
+        // Send voice message for urgent cases (1 day left)
+        if (this.caller && daysLeft <= 1) {
+          try {
+            await this.caller.callExpiringCustomer(agreement, daysLeft);
+            console.log(`[Scheduler] Sent voice reminder to ${agreement.customer_name}`);
+          } catch (err) {
+            console.warn(`[Scheduler] Voice call to ${agreement.customer_name} failed:`, err.message);
           }
         }
 
@@ -126,10 +155,19 @@ class Scheduler {
     try {
       console.log('[Scheduler] Sending daily report...');
       const report = await reports.summaryReport();
-      await notifications.notifySuperadmin(`*☀️ Good Morning Report*\n${report}`);
+      await notifications.notifySuperadmin(`*Good Morning Report*\n${report}`);
     } catch (err) {
       console.error('[Scheduler] Daily report failed:', err.message);
     }
+  }
+
+  getStats() {
+    return {
+      running: this.running,
+      tasks: this.tasks.length,
+      reminders: reminders.getStats(),
+      caller: this.caller ? { log: this.caller.getLog(5).length, scheduled: this.caller.getScheduled().length } : null,
+    };
   }
 }
 
