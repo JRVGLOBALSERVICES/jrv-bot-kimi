@@ -258,7 +258,7 @@ class CustomerFlows {
       fee = policies.getCategoryPricing(agreement.body_type || 'economy')?.daily || 80;
       feeNote = `No-show: Full day charge RM${fee}`;
     } else {
-      feeNote = 'Free cancellation (more than 24h before pickup)';
+      feeNote = 'No refund on cancellations. :)';
     }
 
     let text = `*Cancellation*\n`;
