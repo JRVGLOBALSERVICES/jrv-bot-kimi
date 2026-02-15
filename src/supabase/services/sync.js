@@ -175,6 +175,12 @@ class SyncEngine {
           console.log('[Sync] RESUME command — bot is active again.');
           await this.writeHeartbeat();
           break;
+
+        case 'relink':
+          console.log('[Sync] RELINK command — forcing WhatsApp re-authentication...');
+          await this._clearControl(supabase);
+          // The onCommand callback in index.js handles the actual relink
+          break;
       }
 
       if (this._onCommand) this._onCommand(command);
