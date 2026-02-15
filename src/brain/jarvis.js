@@ -218,7 +218,7 @@ class JarvisBrain {
           const fs = require('fs');
           if (voiceResult.filePath && fs.existsSync(voiceResult.filePath)) {
             response.voice = voiceResult.filePath;
-            response.text = '*Voice note sent.*';
+            // Voice only — no text message needed
           } else {
             response.text = '*Voice generation failed — file not created.*\n```\nTry: pip install edge-tts\n```';
           }
