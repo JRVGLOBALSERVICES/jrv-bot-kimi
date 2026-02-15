@@ -309,6 +309,43 @@ class WhatsAppChannel {
     }
   }
 
+  /**
+   * Force re-link WhatsApp — destroys current session and re-initializes.
+   * This triggers a new QR code which gets written to Supabase for the dashboard.
+   */
+  async relink() {
+    console.log('[WhatsApp] Force re-link requested. Destroying session...');
+    this.ready = false;
+    this._reportStatus('relinking');
+
+    // Destroy current client
+    if (this.client) {
+      try {
+        await this.client.logout();
+      } catch (e) {
+        console.warn('[WhatsApp] Logout failed (may already be disconnected):', e.message);
+      }
+      try {
+        await this.client.destroy();
+      } catch (e) {
+        console.warn('[WhatsApp] Destroy failed:', e.message);
+      }
+      this.client = null;
+    }
+
+    // Delete stored session so a fresh QR is generated
+    const sessionDir = `.wwebjs_auth/session-${config.whatsapp.sessionName}`;
+    const fs = require('fs');
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      console.log('[WhatsApp] Deleted old session data.');
+    }
+
+    // Re-initialize — this will generate a new QR code
+    console.log('[WhatsApp] Re-initializing for new QR code...');
+    await this.init(this.onMessage);
+  }
+
   isConnected() {
     return this.ready;
   }

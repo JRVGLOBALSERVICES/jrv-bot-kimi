@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
 
     if (req.method === 'POST') {
       const { command } = req.body || {};
-      const validCommands = ['kill', 'restart', 'pause', 'resume'];
+      const validCommands = ['kill', 'restart', 'pause', 'resume', 'relink'];
 
       if (!validCommands.includes(command)) {
         return res.status(400).json({ error: `Invalid command. Valid: ${validCommands.join(', ')}` });
@@ -49,7 +49,7 @@ module.exports = async (req, res) => {
 
       const value = {
         command,
-        timestamp: new Date().toISOString(),
+        timestamp: Date.now(),
         source: 'dashboard',
       };
 

@@ -92,6 +92,19 @@ async function boot() {
     }
   });
 
+  // ─── 6. Handle dashboard commands ───────────────────
+  syncEngine.onCommand(async (command) => {
+    if (command === 'relink') {
+      console.log('[JARVIS] Re-linking WhatsApp...');
+      try {
+        await whatsapp.relink();
+        console.log('[JARVIS] WhatsApp re-link initiated. Check dashboard for QR code.');
+      } catch (err) {
+        console.error('[JARVIS] WhatsApp re-link failed:', err.message);
+      }
+    }
+  });
+
   // ─── Cleanup on exit ──────────────────────────────
   const shutdown = async (signal) => {
     console.log(`\n[JARVIS] Shutting down (${signal})...`);

@@ -109,6 +109,9 @@ class SyncEngine {
 
   /**
    * Poll for control commands from the dashboard.
+   * On first poll after boot, records the current timestamp to avoid
+   * re-executing stale commands. Also clears kill/restart commands
+   * after execution to prevent restart loops.
    */
   async pollControl() {
     try {
@@ -122,7 +125,26 @@ class SyncEngine {
       if (!data?.value) return;
 
       const { command, timestamp } = data.value;
-      if (!timestamp || timestamp === this._lastControlTimestamp) return;
+      if (!timestamp) return;
+
+      // On first poll after boot, just record the timestamp — don't execute.
+      // This prevents stale commands from triggering on restart.
+      if (this._lastControlTimestamp === null) {
+        this._lastControlTimestamp = timestamp;
+        console.log(`[Sync] Ignoring stale command on boot: ${command} (ts: ${timestamp})`);
+        return;
+      }
+
+      // Already processed this command
+      if (timestamp === this._lastControlTimestamp) return;
+
+      // Safety: ignore commands older than 60 seconds
+      const commandAge = Date.now() - timestamp;
+      if (commandAge > 60000) {
+        this._lastControlTimestamp = timestamp;
+        console.log(`[Sync] Ignoring old command: ${command} (${Math.round(commandAge / 1000)}s old)`);
+        return;
+      }
 
       this._lastControlTimestamp = timestamp;
       console.log(`[Sync] Dashboard command received: ${command}`);
@@ -131,12 +153,14 @@ class SyncEngine {
         case 'kill':
           console.log('[Sync] KILL command received from dashboard. Shutting down...');
           await this.writeHeartbeat({ online: false, shutdownReason: 'dashboard_kill' });
+          await this._clearControl(supabase);
           process.exit(0);
           break;
 
         case 'restart':
           console.log('[Sync] RESTART command received from dashboard.');
           await this.writeHeartbeat({ online: false, shutdownReason: 'dashboard_restart' });
+          await this._clearControl(supabase);
           process.exit(1); // Exit with error so process manager restarts
           break;
 
@@ -151,11 +175,33 @@ class SyncEngine {
           console.log('[Sync] RESUME command — bot is active again.');
           await this.writeHeartbeat();
           break;
+
+        case 'relink':
+          console.log('[Sync] RELINK command — forcing WhatsApp re-authentication...');
+          await this._clearControl(supabase);
+          // The onCommand callback in index.js handles the actual relink
+          break;
       }
 
       if (this._onCommand) this._onCommand(command);
     } catch (err) {
       // Control polling failure is non-critical
+    }
+  }
+
+  /**
+   * Clear the control command after execution (prevents restart loops).
+   */
+  async _clearControl(supabase) {
+    try {
+      await supabase.from('bot_data_store').upsert({
+        key: 'bot_control',
+        value: { command: null, timestamp: null, cleared: Date.now() },
+        created_by: 'jarvis',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' });
+    } catch (err) {
+      // Non-critical
     }
   }
 
