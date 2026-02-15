@@ -28,7 +28,7 @@ const { validateFleetStatus, colorName } = require('../utils/validators');
  * 6. Match customer language (Malay/English/Chinese/Tamil)
  * 7. >5 bookings = regular customer, priority treatment
  * 8. Query bot_data_store before answering operational questions
- * 9. Format: *bold headers* + ```monospace data```
+ * 9. Format: *bold headers* + ``` data blocks ```
  * 10. No corporate BS -- get straight to data
  *
  * New features:
