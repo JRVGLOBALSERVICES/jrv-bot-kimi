@@ -166,24 +166,32 @@ const TOOLS = [
 ];
 
 // ─── Tool Executor ───────────────────────────────────────
+// isAdmin context is passed through to control sensitive data exposure.
 
-async function executeTool(name, args) {
+async function executeTool(name, args, { isAdmin = false } = {}) {
   switch (name) {
     case 'get_available_cars': {
-      const cache = syncEngine.getCache();
-      const validated = cache.validatedCars || cache.cars;
+      const { validateFleetStatus } = require('../utils/validators');
+      const [cars, agreements] = await Promise.all([
+        fleetService.getAllCars(),
+        agreementsService.getActiveAgreements(),
+      ]);
+      const { validated } = validateFleetStatus(cars, agreements);
       let available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
       if (args.category) {
         available = available.filter(c => (c.body_type || '').toLowerCase() === args.category.toLowerCase());
       }
-      return available.map(c => ({
-        car_name: c._carName || c.body_type || '',
-        color: c.color,
-        year: c.year,
-        body_type: c.body_type,
-        daily_price: c.daily_price,
-        // Plate intentionally excluded — added only for admin context
-      }));
+      return available.map(c => {
+        const result = {
+          car_name: c._carName || c.body_type || '',
+          color: c.color,
+          year: c.year,
+          body_type: c.body_type,
+          daily_price: c.daily_price,
+        };
+        if (isAdmin) result.plate_number = c.plate_number;
+        return result;
+      });
     }
 
     case 'get_pricing':
@@ -196,6 +204,8 @@ async function executeTool(name, args) {
     }
 
     case 'lookup_customer': {
+      // Only admins can look up other customers
+      if (!isAdmin) return { error: 'Customer lookup is only available to admin users.' };
       const history = await agreementsService.getCustomerHistory(args.phone);
       if (!history) return { found: false, message: 'No customer found with this phone number' };
       return {
@@ -206,6 +216,7 @@ async function executeTool(name, args) {
         isRegular: history.totalRentals >= 5,
         activeRentals: history.activeRentals.map(a => ({
           car_type: a.car_type || '',
+          plate_number: a.plate_number,
           date_start: a.date_start,
           date_end: a.date_end,
           status: a.status,
@@ -214,6 +225,8 @@ async function executeTool(name, args) {
     }
 
     case 'get_active_bookings': {
+      // Only admins can see all bookings
+      if (!isAdmin) return { error: 'Active bookings list is only available to admin users.' };
       const active = await agreementsService.getActiveAgreements();
       return active.map(a => ({
         customer_name: a.customer_name,
@@ -227,6 +240,7 @@ async function executeTool(name, args) {
     }
 
     case 'get_expiring_rentals': {
+      if (!isAdmin) return { error: 'Expiring rentals list is only available to admin users.' };
       const expiring = await agreementsService.getExpiringAgreements(args.days || 3);
       return expiring.map(a => ({
         customer_name: a.customer_name,
@@ -238,6 +252,7 @@ async function executeTool(name, args) {
     }
 
     case 'get_overdue_rentals': {
+      if (!isAdmin) return { error: 'Overdue rentals list is only available to admin users.' };
       const overdue = await agreementsService.getOverdueAgreements();
       return overdue.map(a => ({
         customer_name: a.customer_name,
@@ -255,13 +270,16 @@ async function executeTool(name, args) {
 
     case 'search_cars': {
       const results = await fleetService.searchCars(args.query);
-      return results.map(c => ({
-        plate_number: c.plate_number,
-        car_name: c._carName || c.body_type || '',
-        color: c.color,
-        status: c.status,
-        daily_price: c.daily_price,
-      }));
+      return results.map(c => {
+        const result = {
+          car_name: c._carName || c.body_type || '',
+          color: c.color,
+          status: c.status,
+          daily_price: c.daily_price,
+        };
+        if (isAdmin) result.plate_number = c.plate_number;
+        return result;
+      });
     }
 
     case 'get_payment_info':
@@ -304,10 +322,10 @@ async function executeTool(name, args) {
     case 'get_jrv_location': {
       const locationService = require('../utils/location');
       return {
-        name: 'JRV Car Rental',
-        address: 'Seremban, Negeri Sembilan, Malaysia',
+        name: 'JRV Car Rental, Seremban Gateway',
+        address: 'Seremban Gateway, Seremban - Bukit Nenas Hwy, 70200 Seremban, Negeri Sembilan',
         mapsLink: locationService.jrvLocation(),
-        coordinates: { lat: 2.7258, lng: 101.9424 },
+        coordinates: { lat: 2.7256079, lng: 101.9289448 },
       };
     }
 

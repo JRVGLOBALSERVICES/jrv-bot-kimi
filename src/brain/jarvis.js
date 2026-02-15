@@ -781,7 +781,7 @@ class JarvisBrain {
       '',
     ];
 
-    parts.push(policies.buildPolicyContext());
+    parts.push(policies.buildPolicyContext(isAdmin));
     parts.push('');
 
     if (isAdmin) {
