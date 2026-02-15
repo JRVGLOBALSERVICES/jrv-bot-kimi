@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm install --ignore-scripts",
+  "installCommand": "node -e \"require('fs').writeFileSync('package.json',JSON.stringify({dependencies:{'@supabase/supabase-js':'^2.95.3'}}))\" && npm install",
   "buildCommand": "",
   "outputDirectory": "public",
   "framework": null,
