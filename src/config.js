@@ -20,6 +20,17 @@ const config = {
     thinkingModel: process.env.KIMI_THINKING_MODEL || 'kimi-k2-thinking',
   },
 
+  // Groq (fast cloud AI - free tier)
+  // Get key: https://console.groq.com
+  groq: {
+    apiKey: process.env.GROQ_API_KEY,
+    apiUrl: process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1',
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+  },
+
+  // Cloud provider selection: 'kimi' or 'groq'
+  cloudProvider: process.env.CLOUD_PROVIDER || 'kimi',
+
   // Google Gemini (fallback cloud AI)
   // Get key: https://aistudio.google.com/apikey
   gemini: {

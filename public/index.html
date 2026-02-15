@@ -373,9 +373,21 @@
         <span style="color:var(--dim);font-size:11px;">Disconnect + new QR code (see Overview tab)</span>
       </div>
       <div class="control-group">
+        <label>Cloud AI:</label>
+        <select id="cloudProvider"></select>
+        <button onclick="updateModel('cloudProvider')">Apply</button>
+        <span style="color:var(--dim);font-size:11px;">Switch between Kimi and Groq</span>
+      </div>
+      <div class="control-group">
         <label>Kimi Model:</label>
         <select id="kimiModel"></select>
         <button onclick="updateModel('kimi')">Apply</button>
+      </div>
+      <div class="control-group">
+        <label>Groq Model:</label>
+        <select id="groqModel"></select>
+        <button onclick="updateModel('groq')">Apply</button>
+        <span style="color:var(--dim);font-size:11px;">Free, 6x faster</span>
       </div>
       <div class="control-group">
         <label>Local Model:</label>
@@ -590,7 +602,9 @@ async function loadStatus() {
       : '<span style="color:var(--red)">NO</span>';
     const bot = d.bot || {};
     document.getElementById('cfgMode').textContent = bot.mode || bot.aiMode || '—';
-    document.getElementById('cfgAiModel').textContent = bot.kimiModel || 'kimi-k2.5';
+    const provider = bot.cloudProvider || 'kimi';
+    const model = provider === 'groq' ? (bot.groqModel || 'llama-3.3-70b-versatile') : (bot.kimiModel || 'kimi-k2.5');
+    document.getElementById('cfgAiModel').textContent = `${provider.toUpperCase()}: ${model}`;
     document.getElementById('cfgHeartbeat').textContent = d.lastHeartbeat ? new Date(d.lastHeartbeat).toLocaleString() : '—';
     document.getElementById('cfgCars').textContent = bot.cars || bot.carsLoaded || '—';
     document.getElementById('cfgPaused').innerHTML = bot.paused
@@ -637,7 +651,9 @@ async function loadConfig() {
     const cfg = d.config || {};
     const opts = d.options || {};
 
+    fillSelect('cloudProvider', opts.cloudProviders || ['kimi', 'groq'], cfg.cloudProvider || 'kimi');
     fillSelect('kimiModel', opts.kimiModels || [], cfg.kimiModel || 'kimi-k2.5');
+    fillSelect('groqModel', opts.groqModels || [], cfg.groqModel || 'llama-3.3-70b-versatile');
     fillSelect('localModel', opts.localModels || [], cfg.localModel || 'llama3.1:8b');
     fillSelect('geminiModel', opts.geminiModels || [], cfg.geminiModel || 'gemini-2.0-flash');
     fillSelect('aiMode', opts.aiModes || [], cfg.aiMode || 'auto');
@@ -743,7 +759,9 @@ function fillSelect(id, options, selected) {
 
 async function updateModel(type) {
   const body = {};
+  if (type === 'cloudProvider') body.cloudProvider = document.getElementById('cloudProvider').value;
   if (type === 'kimi') body.kimiModel = document.getElementById('kimiModel').value;
+  if (type === 'groq') body.groqModel = document.getElementById('groqModel').value;
   if (type === 'local') body.localModel = document.getElementById('localModel').value;
   if (type === 'gemini') body.geminiModel = document.getElementById('geminiModel').value;
   if (type === 'aiMode') body.aiMode = document.getElementById('aiMode').value;

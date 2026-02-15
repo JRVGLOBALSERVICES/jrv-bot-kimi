@@ -91,7 +91,9 @@ class SyncEngine {
         value: {
           online: true,
           mode: config.mode,
+          cloudProvider: config.cloudProvider,
           kimiModel: config.kimi.model,
+          groqModel: config.groq.model,
           cars: this.cache.cars.length,
           agreements: this.cache.agreements.length,
           lastSync: this.cache.lastSync?.toISOString(),
@@ -221,9 +223,17 @@ class SyncEngine {
       const cfg = data.value;
 
       // Apply model changes
+      if (cfg.cloudProvider && cfg.cloudProvider !== config.cloudProvider) {
+        console.log(`[Sync] Cloud provider changed: ${config.cloudProvider} → ${cfg.cloudProvider}`);
+        config.cloudProvider = cfg.cloudProvider;
+      }
       if (cfg.kimiModel && cfg.kimiModel !== config.kimi.model) {
         console.log(`[Sync] Kimi model changed: ${config.kimi.model} → ${cfg.kimiModel}`);
         config.kimi.model = cfg.kimiModel;
+      }
+      if (cfg.groqModel && cfg.groqModel !== config.groq.model) {
+        console.log(`[Sync] Groq model changed: ${config.groq.model} → ${cfg.groqModel}`);
+        config.groq.model = cfg.groqModel;
       }
       if (cfg.localModel && cfg.localModel !== config.localAI.model) {
         console.log(`[Sync] Local model changed: ${config.localAI.model} → ${cfg.localModel}`);
