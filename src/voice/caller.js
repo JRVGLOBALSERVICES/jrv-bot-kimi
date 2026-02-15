@@ -68,8 +68,9 @@ class VoiceCaller {
 
         this._log(phone, 'voice_message', 'sent', cleanText);
 
-        // Cleanup temp file
-        try { fs.unlinkSync(audioResult.filePath); } catch {}
+        // Cleanup temp file (safety: moves to trash if protected)
+        const fileSafety = require('../utils/file-safety');
+        try { fileSafety.safeDelete(audioResult.filePath); } catch {}
 
         return { success: true, type: 'voice_message', phone };
       }

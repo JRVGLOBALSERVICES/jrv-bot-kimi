@@ -1,6 +1,7 @@
 const config = require('../config');
 const fs = require('fs');
 const path = require('path');
+const fileSafety = require('../utils/file-safety');
 
 /**
  * Image Generator - Creates images from text prompts.
@@ -73,7 +74,7 @@ class ImageGenerator {
     if (!data.images || data.images.length === 0) throw new Error('No image generated');
 
     const imageBuffer = Buffer.from(data.images[0], 'base64');
-    fs.writeFileSync(outputPath, imageBuffer);
+    fileSafety.safeWrite(outputPath, imageBuffer);
 
     return { filePath: outputPath, engine: 'stable-diffusion-local' };
   }
@@ -92,7 +93,7 @@ class ImageGenerator {
     const svgMatch = result.content.match(/<svg[\s\S]*<\/svg>/i);
     if (svgMatch) {
       const svgPath = outputPath.replace('.png', '.svg');
-      fs.writeFileSync(svgPath, svgMatch[0]);
+      fileSafety.safeWrite(svgPath, svgMatch[0]);
       return { filePath: svgPath, engine: 'kimi-svg' };
     }
 

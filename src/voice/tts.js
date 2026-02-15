@@ -3,6 +3,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const jarvisVoice = require('./jarvis-voice');
+const fileSafety = require('../utils/file-safety');
 
 /**
  * Text-to-Speech Engine with JARVIS Voice Profile
@@ -66,7 +67,7 @@ class TTSEngine {
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(outputPath, buffer);
+    fileSafety.safeWrite(outputPath, buffer);
 
     return {
       filePath: outputPath,

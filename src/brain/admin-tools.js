@@ -14,6 +14,7 @@
 const policies = require('./policies');
 const reminders = require('./reminders');
 const { syncEngine, dataStoreService, fleetService, agreementsService } = require('../supabase/services');
+const fileSafety = require('../utils/file-safety');
 
 const BOSS_PHONE = '60138606455';
 
@@ -69,6 +70,24 @@ class AdminTools {
 
       case 'clear-reminders':
         return this._clearReminders(args);
+
+      case 'backups':
+        return this._listBackups(args);
+
+      case 'trash':
+        return this._listTrash();
+
+      case 'restore':
+        return this._restoreFile(args);
+
+      case 'delete':
+        return this._deleteFromTrash(args);
+
+      case 'purge-trash':
+        return this._purgeTrash();
+
+      case 'safety-log':
+        return this._safetyLog();
 
       case 'system':
         return this._systemInfo();
@@ -291,6 +310,94 @@ Requirements:
     return { cleared: count, phone };
   }
 
+  // ─── File Safety Commands ──────────────────────────
+
+  /**
+   * List backups (optionally for a specific file).
+   */
+  _listBackups(args) {
+    if (args.length > 0) {
+      const filePath = args.join(' ');
+      const backups = fileSafety.listBackups(filePath);
+      return {
+        file: filePath,
+        backups: backups.map(b => ({
+          timestamp: b.timestamp,
+          size: `${Math.round(b.size / 1024)}KB`,
+        })),
+        count: backups.length,
+      };
+    }
+
+    const all = fileSafety.listBackups();
+    return {
+      snapshots: all.map(b => b.timestamp),
+      count: all.length,
+      location: '.backups/',
+    };
+  }
+
+  /**
+   * List files in .trash/.
+   */
+  _listTrash() {
+    const files = fileSafety.listTrash();
+    return {
+      files: files.map(f => ({
+        name: f.name,
+        original: f.originalName,
+        trashedAt: f.trashedAt,
+        size: `${Math.round(f.size / 1024)}KB`,
+      })),
+      count: files.length,
+    };
+  }
+
+  /**
+   * Restore a file from backup.
+   */
+  _restoreFile(args) {
+    if (args.length === 0) {
+      return { error: 'Usage: /tool restore <file-path>' };
+    }
+    const filePath = args.join(' ');
+    return fileSafety.restore(filePath);
+  }
+
+  /**
+   * Permanently delete a file from .trash/.
+   */
+  _deleteFromTrash(args) {
+    if (args.length === 0) {
+      return { error: 'Usage: /tool delete <trash-filename>' };
+    }
+    const trashFile = args.join(' ');
+    return fileSafety.permanentDelete(trashFile);
+  }
+
+  /**
+   * Purge all files from .trash/.
+   */
+  _purgeTrash() {
+    return fileSafety.purgeTrash();
+  }
+
+  /**
+   * Show recent file safety audit log.
+   */
+  _safetyLog() {
+    const log = fileSafety.getLog(20);
+    return {
+      entries: log.map(e => ({
+        action: e.action,
+        file: e.file,
+        detail: e.detail,
+        time: e.timestamp,
+      })),
+      count: log.length,
+    };
+  }
+
   /**
    * System information.
    */
@@ -321,6 +428,12 @@ Requirements:
         '/tool query <type>': 'Query Supabase data',
         '/tool reminder-all': 'List all reminders',
         '/tool clear-reminders <phone>': 'Clear reminders',
+        '/tool backups [file]': 'List backup snapshots',
+        '/tool trash': 'List trashed files',
+        '/tool restore <file>': 'Restore file from backup',
+        '/tool delete <trash-file>': 'Permanently delete from trash',
+        '/tool purge-trash': 'Empty trash permanently',
+        '/tool safety-log': 'File safety audit log',
         '/tool system': 'System info',
       },
       note: 'Boss-only commands. Access restricted to +60138606455.',
