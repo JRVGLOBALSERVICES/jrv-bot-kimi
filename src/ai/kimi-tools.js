@@ -1,0 +1,272 @@
+/**
+ * Kimi K2 Tool Definitions - Function calling tools for JARVIS.
+ *
+ * These tools let Kimi K2 query live data from Supabase
+ * during conversation, so it can give accurate answers.
+ */
+
+const { fleetService, agreementsService, dataStoreService, syncEngine } = require('../supabase/services');
+const policies = require('../brain/policies');
+const { todayMYT, daysBetween } = require('../utils/time');
+
+// ─── Tool Definitions (OpenAI function format) ──────────
+
+const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_available_cars',
+      description: 'Get list of currently available cars for rental. Returns car models, categories, and daily rates. Do NOT include car plates when responding to customers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            description: 'Filter by category: economy, compact, suv, premium, mpv. Leave empty for all.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_pricing',
+      description: 'Get rental pricing for all car categories. Returns daily, 3-day, weekly, and monthly rates.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_delivery_fee',
+      description: 'Get delivery fee for a specific location.',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: { type: 'string', description: 'Delivery location name (e.g., KLIA, KL, Seremban, Nilai)' },
+        },
+        required: ['location'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'lookup_customer',
+      description: 'Look up a customer by phone number. Returns their rental history and active bookings.',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string', description: 'Customer phone number' },
+        },
+        required: ['phone'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_active_bookings',
+      description: 'Get all currently active rental bookings.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_expiring_rentals',
+      description: 'Get rentals expiring within N days.',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: 'Number of days ahead to check (default 3)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_overdue_rentals',
+      description: 'Get all overdue rentals (past end date but not returned).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_fleet_status',
+      description: 'Get fleet overview: total cars, available, rented, maintenance counts.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_cars',
+      description: 'Search for cars by make, model, color, or plate number.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_payment_info',
+      description: 'Get payment methods, bank details, and instructions.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_policies',
+      description: 'Get specific business policy information.',
+      parameters: {
+        type: 'object',
+        properties: {
+          policy: {
+            type: 'string',
+            description: 'Policy type: deposit, cancellation, extension, fuel, cleanliness, insurance, documents',
+          },
+        },
+        required: ['policy'],
+      },
+    },
+  },
+];
+
+// ─── Tool Executor ───────────────────────────────────────
+
+async function executeTool(name, args) {
+  switch (name) {
+    case 'get_available_cars': {
+      const cache = syncEngine.getCache();
+      const validated = cache.validatedCars || cache.cars;
+      let available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
+      if (args.category) {
+        available = available.filter(c => c.category?.toLowerCase() === args.category.toLowerCase());
+      }
+      return available.map(c => ({
+        make: c.make,
+        model: c.model,
+        color: c.color,
+        year: c.year,
+        category: c.category,
+        daily_rate: c.daily_rate,
+        // Plate intentionally excluded — added only for admin context
+      }));
+    }
+
+    case 'get_pricing':
+      return policies.pricing;
+
+    case 'get_delivery_fee': {
+      const fee = policies.getDeliveryFee(args.location);
+      if (fee) return fee;
+      return { error: `Unknown location: ${args.location}`, zones: policies.deliveryZones };
+    }
+
+    case 'lookup_customer': {
+      const history = await agreementsService.getCustomerHistory(args.phone);
+      if (!history) return { found: false, message: 'No customer found with this phone number' };
+      return {
+        found: true,
+        name: history.name,
+        totalRentals: history.totalRentals,
+        totalSpent: history.totalSpent,
+        isRegular: history.totalRentals >= 5,
+        activeRentals: history.activeRentals.map(a => ({
+          car_model: a.car_description || `${a.make || ''} ${a.model || ''}`.trim(),
+          start_date: a.start_date,
+          end_date: a.end_date,
+          status: a.status,
+        })),
+      };
+    }
+
+    case 'get_active_bookings': {
+      const active = await agreementsService.getActiveAgreements();
+      return active.map(a => ({
+        customer_name: a.customer_name,
+        customer_phone: a.customer_phone,
+        car_plate: a.car_plate,
+        start_date: a.start_date,
+        end_date: a.end_date,
+        status: a.status,
+        days_left: daysBetween(todayMYT(), a.end_date),
+      }));
+    }
+
+    case 'get_expiring_rentals': {
+      const expiring = await agreementsService.getExpiringAgreements(args.days || 3);
+      return expiring.map(a => ({
+        customer_name: a.customer_name,
+        customer_phone: a.customer_phone,
+        car_plate: a.car_plate,
+        end_date: a.end_date,
+        days_left: daysBetween(todayMYT(), a.end_date),
+      }));
+    }
+
+    case 'get_overdue_rentals': {
+      const overdue = await agreementsService.getOverdueAgreements();
+      return overdue.map(a => ({
+        customer_name: a.customer_name,
+        customer_phone: a.customer_phone,
+        car_plate: a.car_plate,
+        end_date: a.end_date,
+        days_overdue: daysBetween(a.end_date, todayMYT()),
+      }));
+    }
+
+    case 'get_fleet_status': {
+      const stats = await fleetService.getFleetStats();
+      return stats;
+    }
+
+    case 'search_cars': {
+      const results = await fleetService.searchCars(args.query);
+      return results.map(c => ({
+        car_plate: c.car_plate,
+        make: c.make,
+        model: c.model,
+        color: c.color,
+        status: c.status,
+        daily_rate: c.daily_rate,
+      }));
+    }
+
+    case 'get_payment_info':
+      return {
+        methods: policies.payment.methods,
+        bank: policies.payment.bank,
+        instructions: policies.payment.instructions,
+      };
+
+    case 'get_policies': {
+      const p = args.policy?.toLowerCase();
+      const map = {
+        deposit: policies.deposit,
+        cancellation: policies.cancellation,
+        extension: policies.extension,
+        fuel: policies.fuel,
+        cleanliness: policies.cleanliness,
+        insurance: policies.insurance,
+        documents: policies.documents,
+      };
+      return map[p] || { error: `Unknown policy: ${p}`, available: Object.keys(map) };
+    }
+
+    default:
+      return { error: `Unknown tool: ${name}` };
+  }
+}
+
+module.exports = { TOOLS, executeTool };

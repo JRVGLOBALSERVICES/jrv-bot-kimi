@@ -11,10 +11,13 @@ const config = {
   },
 
   // Kimi K2 (cloud API - complex tasks)
+  // Get key: https://platform.moonshot.ai
+  // Models: kimi-k2-0905-preview, kimi-k2.5, kimi-k2-thinking
   kimi: {
     apiKey: process.env.KIMI_API_KEY,
-    apiUrl: process.env.KIMI_API_URL || 'https://api.moonshot.cn/v1',
-    model: process.env.KIMI_MODEL || 'moonshot-v1-128k',
+    apiUrl: process.env.KIMI_API_URL || 'https://api.moonshot.ai/v1',
+    model: process.env.KIMI_MODEL || 'kimi-k2-0905-preview',
+    thinkingModel: process.env.KIMI_THINKING_MODEL || 'kimi-k2-thinking',
   },
 
   // Local AI (Ollama on Jetson - simple tasks)
