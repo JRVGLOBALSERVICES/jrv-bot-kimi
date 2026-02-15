@@ -12,6 +12,8 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace; background: var(--bg); color: var(--text); }
+
+    /* Login */
     .login { display: flex; align-items: center; justify-content: center; height: 100vh; }
     .login-box { background: var(--card); border: 1px solid var(--border); padding: 40px; border-radius: 8px; text-align: center; }
     .login-box h1 { color: var(--accent); margin-bottom: 20px; font-size: 18px; }
@@ -19,7 +21,8 @@
     .login-box button { margin-top: 12px; padding: 10px 30px; background: var(--accent); color: var(--bg); border: none; font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 4px; }
     .login-box .error { color: var(--red); margin-top: 10px; font-size: 12px; }
 
-    .dashboard { display: none; padding: 16px; max-width: 1200px; margin: 0 auto; }
+    /* Dashboard */
+    .dashboard { display: none; padding: 16px; max-width: 1400px; margin: 0 auto; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
     .header h1 { color: var(--accent); font-size: 16px; }
     .header .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -30,17 +33,25 @@
     .header .right button { padding: 4px 12px; font-family: inherit; font-size: 11px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; border-radius: 3px; }
     .header .right button:hover { border-color: var(--accent); color: var(--accent); }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .tab { padding: 8px 16px; font-family: inherit; font-size: 12px; background: transparent; color: var(--dim); border: none; border-bottom: 2px solid transparent; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Grid & Cards */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; }
     .card h2 { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
     .card .big { font-size: 28px; font-weight: bold; color: var(--accent); }
     .card .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
     .card .row:last-child { border: none; }
     .card .label { color: var(--dim); }
-
     .full { grid-column: 1 / -1; }
-    .half { grid-column: span 1; }
 
+    /* Tables */
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
     th { text-align: left; color: var(--dim); padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: normal; text-transform: uppercase; letter-spacing: 0.5px; }
     td { padding: 6px 8px; border-bottom: 1px solid #1a1a1a; }
@@ -52,6 +63,7 @@
     .tag-blue { background: #0a1a2a; color: var(--blue); }
     .tag-yellow { background: #2a2a0a; color: var(--yellow); }
 
+    /* Controls */
     .controls { margin-bottom: 16px; }
     .control-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
     .control-group label { color: var(--dim); font-size: 11px; min-width: 80px; }
@@ -66,6 +78,30 @@
     .btn-success { border-color: var(--green) !important; color: var(--green) !important; }
     .btn-success:hover { background: var(--green) !important; color: var(--bg) !important; }
 
+    /* Quick buttons */
+    .quick-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .quick-btns button { padding: 5px 10px; font-family: inherit; font-size: 11px; background: var(--card); color: var(--accent); border: 1px solid var(--border); cursor: pointer; border-radius: 3px; }
+    .quick-btns button:hover { background: var(--accent); color: var(--bg); }
+    .quick-btns button.boss { color: var(--red); border-color: #333; }
+    .quick-btns button.boss:hover { background: var(--red); color: var(--bg); }
+    .quick-btns .section-label { color: var(--dim); font-size: 10px; padding: 5px 4px; text-transform: uppercase; }
+
+    /* Report output */
+    .report-output { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-size: 12px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; color: var(--accent); line-height: 1.5; }
+
+    /* Customer search */
+    .search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .search-row input { flex: 1; max-width: 300px; padding: 8px; background: var(--bg); color: var(--accent); border: 1px solid var(--border); font-family: inherit; font-size: 13px; border-radius: 4px; }
+    .search-row button { padding: 8px 16px; background: var(--accent); color: var(--bg); border: none; font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 4px; }
+
+    /* Pricing */
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .pricing-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+    .pricing-card h3 { color: var(--accent); font-size: 13px; margin-bottom: 8px; text-transform: capitalize; }
+    .pricing-card .rate { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; color: var(--text); }
+    .pricing-card .rate .val { color: var(--accent); }
+
+    /* Log */
     .log { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-size: 11px; max-height: 120px; overflow-y: auto; color: var(--dim); }
     .log .entry { padding: 2px 0; }
     .log .entry.error { color: var(--red); }
@@ -75,6 +111,7 @@
       .grid { grid-template-columns: 1fr; }
       .control-group { flex-direction: column; align-items: stretch; }
       .header { flex-direction: column; gap: 8px; }
+      .tabs { overflow-x: auto; }
     }
   </style>
 </head>
@@ -109,106 +146,217 @@
     </div>
   </div>
 
-  <!-- Stats Cards -->
-  <div class="grid" id="statsGrid">
-    <div class="card">
-      <h2>Fleet</h2>
-      <div class="big" id="fleetTotal">—</div>
-      <div class="row"><span class="label">Available</span><span id="fleetAvail" style="color:var(--green)">—</span></div>
-      <div class="row"><span class="label">Rented</span><span id="fleetRented" style="color:var(--blue)">—</span></div>
-      <div class="row"><span class="label">Maintenance</span><span id="fleetMaint" style="color:var(--orange)">—</span></div>
-    </div>
-    <div class="card">
-      <h2>Bookings</h2>
-      <div class="big" id="bookingsTotal">—</div>
-      <div class="row"><span class="label">Expiring (3d)</span><span id="bookingsExpiring" style="color:var(--orange)">—</span></div>
-      <div class="row"><span class="label">Overdue</span><span id="bookingsOverdue" style="color:var(--red)">—</span></div>
-    </div>
-    <div class="card">
-      <h2>Revenue</h2>
-      <div class="big" id="earningsMonth">—</div>
-      <div class="row"><span class="label">Today</span><span id="earningsToday">—</span></div>
-      <div class="row"><span class="label">All Time</span><span id="earningsTotal">—</span></div>
-      <div class="row"><span class="label">Customers</span><span id="earningsCustomers">—</span></div>
-    </div>
-    <div class="card">
-      <h2>Bot Status</h2>
-      <div class="row"><span class="label">Online</span><span id="cfgOnline">—</span></div>
-      <div class="row"><span class="label">Heartbeat</span><span id="cfgHeartbeat">—</span></div>
-      <div class="row"><span class="label">WhatsApp</span><span id="cfgWhatsApp">—</span></div>
-      <div class="row"><span class="label">Last Cmd</span><span id="cfgLastCmd">—</span></div>
-    </div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('overview')">Overview</button>
+    <button class="tab" onclick="switchTab('fleet')">Fleet</button>
+    <button class="tab" onclick="switchTab('bookings')">Bookings</button>
+    <button class="tab" onclick="switchTab('customers')">Customers</button>
+    <button class="tab" onclick="switchTab('reports')">Reports</button>
+    <button class="tab" onclick="switchTab('pricing')">Pricing</button>
+    <button class="tab" onclick="switchTab('controls')">Controls</button>
   </div>
 
-  <!-- Controls: Kill Switch + Model Switching -->
-  <div class="card full controls">
-    <h2>Controls</h2>
-    <div class="control-group">
-      <label>Bot:</label>
-      <button class="btn-danger" onclick="sendCommand('kill')">Kill</button>
-      <button class="btn-warning" onclick="sendCommand('pause')">Pause</button>
-      <button class="btn-success" onclick="sendCommand('resume')">Resume</button>
-      <button onclick="sendCommand('restart')">Restart</button>
+  <!-- ============ OVERVIEW TAB ============ -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="grid">
+      <div class="card">
+        <h2>Fleet</h2>
+        <div class="big" id="fleetTotal">—</div>
+        <div class="row"><span class="label">Available</span><span id="fleetAvail" style="color:var(--green)">—</span></div>
+        <div class="row"><span class="label">Rented</span><span id="fleetRented" style="color:var(--blue)">—</span></div>
+        <div class="row"><span class="label">Maintenance</span><span id="fleetMaint" style="color:var(--orange)">—</span></div>
+      </div>
+      <div class="card">
+        <h2>Bookings</h2>
+        <div class="big" id="bookingsTotal">—</div>
+        <div class="row"><span class="label">Expiring (3d)</span><span id="bookingsExpiring" style="color:var(--orange)">—</span></div>
+        <div class="row"><span class="label">Overdue</span><span id="bookingsOverdue" style="color:var(--red)">—</span></div>
+      </div>
+      <div class="card">
+        <h2>Revenue</h2>
+        <div class="big" id="earningsMonth">—</div>
+        <div class="row"><span class="label">Today</span><span id="earningsToday">—</span></div>
+        <div class="row"><span class="label">All Time</span><span id="earningsTotal">—</span></div>
+        <div class="row"><span class="label">Customers</span><span id="earningsCustomers">—</span></div>
+      </div>
+      <div class="card">
+        <h2>Bot Status</h2>
+        <div class="row"><span class="label">Online</span><span id="cfgOnline">—</span></div>
+        <div class="row"><span class="label">Mode</span><span id="cfgMode">—</span></div>
+        <div class="row"><span class="label">AI Model</span><span id="cfgAiModel">—</span></div>
+        <div class="row"><span class="label">Heartbeat</span><span id="cfgHeartbeat">—</span></div>
+        <div class="row"><span class="label">Cars Synced</span><span id="cfgCars">—</span></div>
+        <div class="row"><span class="label">Paused</span><span id="cfgPaused">—</span></div>
+        <div class="row"><span class="label">Last Cmd</span><span id="cfgLastCmd">—</span></div>
+      </div>
     </div>
-    <div class="control-group">
-      <label>Kimi Model:</label>
-      <select id="kimiModel"></select>
-      <button onclick="updateModel('kimi')">Apply</button>
-    </div>
-    <div class="control-group">
-      <label>Local Model:</label>
-      <select id="localModel"></select>
-      <button onclick="updateModel('local')">Apply</button>
-    </div>
-    <div class="control-group">
-      <label>Gemini:</label>
-      <select id="geminiModel"></select>
-      <button onclick="updateModel('gemini')">Apply</button>
-    </div>
-    <div class="control-group">
-      <label>AI Mode:</label>
-      <select id="aiMode"></select>
-      <button onclick="updateModel('aiMode')">Apply</button>
-    </div>
-    <div class="log" id="actionLog"></div>
-  </div>
 
-  <!-- Fleet Table -->
-  <div class="card full">
-    <h2>Fleet</h2>
-    <div style="overflow-x:auto;">
+    <!-- WhatsApp Status -->
+    <div class="card full" style="margin-bottom: 12px;">
+      <h2>WhatsApp Connection</h2>
+      <div class="grid" style="margin-bottom:0;">
+        <div>
+          <div class="row"><span class="label">Status</span><span id="waStatus">—</span></div>
+          <div class="row"><span class="label">Last Change</span><span id="waTimestamp">—</span></div>
+          <div class="row"><span class="label">Reason</span><span id="waReason">—</span></div>
+        </div>
+        <div id="waQrSection" style="display:none;">
+          <div style="color:var(--orange);font-size:11px;margin-bottom:4px;">QR Code available — scan with WhatsApp</div>
+          <div id="waQrCode" style="font-size:10px;color:var(--dim);word-break:break-all;max-height:60px;overflow:hidden;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="card full" style="margin-bottom: 12px;">
+      <h2>Activity Log</h2>
+      <div class="log" id="activityLog" style="max-height:200px;">
+        <div class="entry" style="color:var(--dim)">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Overdue Alerts -->
+    <div class="card full" id="overdueSection" style="display:none; margin-bottom: 12px;">
+      <h2 style="color:var(--red);">Overdue Returns</h2>
       <table>
-        <thead><tr><th>Plate</th><th>Car</th><th>Status</th><th>Rate</th></tr></thead>
-        <tbody id="fleetTable"></tbody>
+        <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Was Due</th><th>Days Over</th></tr></thead>
+        <tbody id="overdueTable"></tbody>
+      </table>
+    </div>
+
+    <!-- Expiring Rentals -->
+    <div class="card full" id="expiringSection" style="display:none; margin-bottom: 12px;">
+      <h2 style="color:var(--orange);">Expiring Soon</h2>
+      <table>
+        <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Ends</th><th>Days Left</th></tr></thead>
+        <tbody id="expiringTable"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- Overdue Alerts -->
-  <div class="card full" id="overdueSection" style="display:none;">
-    <h2 style="color:var(--red);">Overdue Returns</h2>
-    <table>
-      <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Was Due</th><th>Days Over</th></tr></thead>
-      <tbody id="overdueTable"></tbody>
-    </table>
+  <!-- ============ FLEET TAB ============ -->
+  <div class="tab-content" id="tab-fleet">
+    <div class="quick-btns">
+      <button onclick="loadReport('fleet')">Full Fleet Report</button>
+      <button onclick="loadReport('available')">Available Only</button>
+    </div>
+    <div class="card full">
+      <h2>All Cars</h2>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Plate</th><th>Car</th><th>Category</th><th>Color</th><th>Year</th><th>Status</th><th>Rate</th></tr></thead>
+          <tbody id="fleetTable"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
-  <!-- Expiring Rentals -->
-  <div class="card full" id="expiringSection" style="display:none;">
-    <h2 style="color:var(--orange);">Expiring Soon</h2>
-    <table>
-      <thead><tr><th>Plate</th><th>Customer</th><th>Phone</th><th>Ends</th><th>Days Left</th></tr></thead>
-      <tbody id="expiringTable"></tbody>
-    </table>
+  <!-- ============ BOOKINGS TAB ============ -->
+  <div class="tab-content" id="tab-bookings">
+    <div class="quick-btns">
+      <button onclick="loadReport('summary')">Summary Report</button>
+      <button onclick="loadReport('by-time')">By End Date</button>
+      <button onclick="loadReport('by-contact')">By Customer</button>
+    </div>
+    <div class="card full">
+      <h2>Active Bookings</h2>
+      <table>
+        <thead><tr><th>Customer</th><th>Phone</th><th>Plate</th><th>Car</th><th>Period</th><th>Amount</th><th>Status</th></tr></thead>
+        <tbody id="bookingsTable"></tbody>
+      </table>
+    </div>
   </div>
 
-  <!-- Active Bookings -->
-  <div class="card full">
-    <h2>Active Bookings</h2>
-    <table>
-      <thead><tr><th>Customer</th><th>Phone</th><th>Plate</th><th>Period</th><th>Amount</th><th>Status</th></tr></thead>
-      <tbody id="bookingsTable"></tbody>
-    </table>
+  <!-- ============ CUSTOMERS TAB ============ -->
+  <div class="tab-content" id="tab-customers">
+    <div class="search-row">
+      <input id="customerSearch" placeholder="Search by name or phone..." onkeypress="if(event.key==='Enter')searchCustomers()">
+      <button onclick="searchCustomers()">Search</button>
+      <button onclick="document.getElementById('customerSearch').value='';searchCustomers()" style="background:var(--card);color:var(--text);border:1px solid var(--border);">All</button>
+    </div>
+    <div class="card full">
+      <h2>Customers <span id="customerCount" style="color:var(--accent)"></span></h2>
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Total Rentals</th><th>Total Spent</th><th>Active</th><th>Last Rental</th></tr></thead>
+        <tbody id="customerTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ REPORTS TAB ============ -->
+  <div class="tab-content" id="tab-reports">
+    <div class="quick-btns">
+      <span class="section-label">Reports:</span>
+      <button onclick="loadReport('summary')">Daily Summary</button>
+      <button onclick="loadReport('fleet')">Fleet</button>
+      <button onclick="loadReport('by-time')">By End Date</button>
+      <button onclick="loadReport('by-contact')">By Customer</button>
+      <button onclick="loadReport('available')">Available Cars</button>
+    </div>
+    <div class="card full">
+      <h2>Report Output <span id="reportType" style="color:var(--accent);font-size:11px;"></span></h2>
+      <div class="report-output" id="reportOutput">Select a report type above to generate.</div>
+    </div>
+  </div>
+
+  <!-- ============ PRICING TAB ============ -->
+  <div class="tab-content" id="tab-pricing">
+    <div class="card full" style="margin-bottom:12px;">
+      <h2>Rental Rates</h2>
+      <div class="pricing-grid" id="pricingGrid">
+        <div style="color:var(--dim)">Loading pricing...</div>
+      </div>
+    </div>
+    <div class="card full">
+      <h2>Delivery Zones</h2>
+      <table>
+        <thead><tr><th>Zone</th><th>Areas</th><th>Fee</th></tr></thead>
+        <tbody id="deliveryTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ CONTROLS TAB ============ -->
+  <div class="tab-content" id="tab-controls">
+    <div class="card full controls">
+      <h2>Bot Controls</h2>
+      <div style="color:var(--dim);font-size:11px;margin-bottom:10px;">
+        Note: Kill/Restart stop the bot process. Use PM2 (<code>pm2 start npm --name jrv -- start</code>) for auto-restart.
+        If bot is killed without PM2, you must restart manually on the server.
+      </div>
+      <div class="control-group">
+        <label>Bot:</label>
+        <button class="btn-warning" onclick="sendCommand('pause')">Pause</button>
+        <button class="btn-success" onclick="sendCommand('resume')">Resume</button>
+        <button onclick="sendCommand('restart')">Restart (PM2)</button>
+        <button class="btn-danger" onclick="sendCommand('kill')">Kill</button>
+      </div>
+      <div class="control-group">
+        <label>Kimi Model:</label>
+        <select id="kimiModel"></select>
+        <button onclick="updateModel('kimi')">Apply</button>
+      </div>
+      <div class="control-group">
+        <label>Local Model:</label>
+        <select id="localModel"></select>
+        <button onclick="updateModel('local')">Apply</button>
+      </div>
+      <div class="control-group">
+        <label>Gemini:</label>
+        <select id="geminiModel"></select>
+        <button onclick="updateModel('gemini')">Apply</button>
+      </div>
+      <div class="control-group">
+        <label>AI Mode:</label>
+        <select id="aiMode"></select>
+        <button onclick="updateModel('aiMode')">Apply</button>
+      </div>
+    </div>
+    <div class="card full">
+      <h2>Action Log</h2>
+      <div class="log" id="actionLog"></div>
+    </div>
   </div>
 </div>
 
@@ -257,10 +405,22 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
+// --- Tabs ---
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+
+  // Lazy load tab data
+  if (tab === 'customers') searchCustomers();
+  if (tab === 'pricing') loadPricing();
+}
+
 // --- Refresh ---
 async function refreshAll() {
   document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
-  await Promise.all([loadFleet(), loadBookings(), loadEarnings(), loadStatus(), loadConfig()]);
+  await Promise.all([loadFleet(), loadBookings(), loadEarnings(), loadStatus(), loadConfig(), loadActivityLog()]);
 }
 
 // --- Fleet ---
@@ -274,10 +434,14 @@ async function loadFleet() {
 
     const tb = document.getElementById('fleetTable');
     tb.innerHTML = (d.cars || []).map(c => {
-      const tag = c.status === 'available' ? 'tag-green' : c.status === 'rented' ? 'tag-blue' : 'tag-orange';
+      const tag = c.status === 'available' ? 'tag-green' : c.status === 'rented' ? 'tag-blue' : c.status === 'maintenance' ? 'tag-orange' : 'tag-yellow';
+      const color = c.color ? `<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${c.color};vertical-align:middle;margin-right:4px;"></span>${colorName(c.color)}` : '—';
       return `<tr>
         <td>${c.plate_number || '—'}</td>
         <td>${c.car_name || c.body_type || '—'}</td>
+        <td>${c.body_type || '—'}</td>
+        <td>${color}</td>
+        <td>${c.year || '—'}</td>
         <td><span class="tag ${tag}">${c.status}</span></td>
         <td>RM${c.daily_price || '—'}</td>
       </tr>`;
@@ -316,15 +480,20 @@ async function loadBookings() {
     </tr>`).join('');
 
     // Active bookings table
-    const active = [...(d.expiring||[]), ...(d.active||[])];
-    document.getElementById('bookingsTable').innerHTML = active.map(a => `<tr>
-      <td>${a.customer_name || '—'}</td>
-      <td>${a.mobile || '—'}</td>
-      <td>${a.plate_number || '—'}</td>
-      <td>${(a.date_start||'').slice(0,10)} → ${(a.date_end||'').slice(0,10)}</td>
-      <td>RM${a.total_price || '—'}</td>
-      <td><span class="tag tag-blue">${a.status || '—'}</span></td>
-    </tr>`).join('');
+    const all = [...(d.overdue||[]), ...(d.expiring||[]), ...(d.active||[])];
+    document.getElementById('bookingsTable').innerHTML = all.map(a => {
+      const tag = a.days_overdue ? 'tag-red' : a.days_left <= 3 ? 'tag-orange' : 'tag-blue';
+      const label = a.days_overdue ? `${a.days_overdue}d overdue` : a.days_left !== undefined && a.days_left <= 3 ? `${a.days_left}d left` : a.status || '—';
+      return `<tr>
+        <td>${a.customer_name || '—'}</td>
+        <td>${a.mobile || '—'}</td>
+        <td>${a.plate_number || '—'}</td>
+        <td>${a.car_type || '—'}</td>
+        <td>${(a.date_start||'').slice(0,10)} → ${(a.date_end||'').slice(0,10)}</td>
+        <td>RM${a.total_price || '—'}</td>
+        <td><span class="tag ${tag}">${label}</span></td>
+      </tr>`;
+    }).join('');
   } catch (e) { logAction('Bookings load failed: ' + e.message, true); }
 }
 
@@ -357,9 +526,39 @@ async function loadStatus() {
     document.getElementById('cfgOnline').innerHTML = d.online
       ? '<span style="color:var(--green)">YES</span>'
       : '<span style="color:var(--red)">NO</span>';
+    const bot = d.bot || {};
+    document.getElementById('cfgMode').textContent = bot.mode || bot.aiMode || '—';
+    document.getElementById('cfgAiModel').textContent = bot.kimiModel || 'kimi-k2.5';
     document.getElementById('cfgHeartbeat').textContent = d.lastHeartbeat ? new Date(d.lastHeartbeat).toLocaleString() : '—';
-    document.getElementById('cfgWhatsApp').textContent = d.whatsapp?.status || 'unknown';
+    document.getElementById('cfgCars').textContent = bot.cars || bot.carsLoaded || '—';
+    document.getElementById('cfgPaused').innerHTML = bot.paused
+      ? '<span style="color:var(--orange)">YES</span>'
+      : '<span style="color:var(--green)">NO</span>';
     document.getElementById('cfgLastCmd').textContent = d.lastCommand?.command || 'none';
+
+    // WhatsApp status
+    const wa = d.whatsapp || {};
+    const waEl = document.getElementById('waStatus');
+    if (wa.status === 'connected') {
+      waEl.innerHTML = '<span style="color:var(--green)">CONNECTED</span>';
+    } else if (wa.status === 'waiting_for_qr') {
+      waEl.innerHTML = '<span style="color:var(--orange)">WAITING FOR QR</span>';
+    } else if (wa.status === 'disconnected') {
+      waEl.innerHTML = '<span style="color:var(--red)">DISCONNECTED</span>';
+    } else {
+      waEl.innerHTML = '<span style="color:var(--dim)">' + (wa.status || 'unknown') + '</span>';
+    }
+    document.getElementById('waTimestamp').textContent = wa.timestamp ? new Date(wa.timestamp).toLocaleString() : '—';
+    document.getElementById('waReason').textContent = wa.reason || '—';
+
+    // QR code section
+    const qrSection = document.getElementById('waQrSection');
+    if (wa.status === 'waiting_for_qr' && wa.qr) {
+      qrSection.style.display = 'block';
+      document.getElementById('waQrCode').textContent = wa.qr;
+    } else {
+      qrSection.style.display = 'none';
+    }
   } catch (e) { logAction('Status load failed: ' + e.message, true); }
 }
 
@@ -370,11 +569,62 @@ async function loadConfig() {
     const cfg = d.config || {};
     const opts = d.options || {};
 
-    fillSelect('kimiModel', opts.kimiModels || [], cfg.kimiModel || 'kimi-k2-0905-preview');
+    fillSelect('kimiModel', opts.kimiModels || [], cfg.kimiModel || 'kimi-k2.5');
     fillSelect('localModel', opts.localModels || [], cfg.localModel || 'llama3.1:8b');
     fillSelect('geminiModel', opts.geminiModels || [], cfg.geminiModel || 'gemini-2.0-flash');
     fillSelect('aiMode', opts.aiModes || [], cfg.aiMode || 'auto');
   } catch (e) { logAction('Config load failed: ' + e.message, true); }
+}
+
+// --- Activity Log ---
+async function loadActivityLog() {
+  try {
+    const d = await api('/logs');
+    const logEl = document.getElementById('activityLog');
+    const activities = d.activities || [];
+
+    if (activities.length === 0) {
+      logEl.innerHTML = '<div class="entry" style="color:var(--dim)">No activity data yet. Bot writes activity to Supabase.</div>';
+      return;
+    }
+
+    logEl.innerHTML = activities.map(a => {
+      const ts = a.updatedAt ? new Date(a.updatedAt).toLocaleString() : '—';
+      let label = a.key;
+      let color = 'var(--dim)';
+      let detail = '';
+
+      if (a.key === 'bot_status') {
+        const v = a.value || {};
+        label = 'Heartbeat';
+        color = v.online ? 'var(--green)' : 'var(--red)';
+        detail = v.online ? `Online | ${v.cars || 0} cars | ${v.agreements || 0} bookings` : (v.shutdownReason || 'Offline');
+      } else if (a.key === 'whatsapp_status') {
+        const v = a.value || {};
+        label = 'WhatsApp';
+        color = v.status === 'connected' ? 'var(--green)' : v.status === 'disconnected' ? 'var(--red)' : 'var(--orange)';
+        detail = v.status + (v.reason ? ` (${v.reason})` : '');
+      } else if (a.key === 'bot_control') {
+        const v = a.value || {};
+        label = 'Command';
+        color = 'var(--blue)';
+        detail = v.command || JSON.stringify(v);
+      } else if (a.key === 'bot_config') {
+        const v = a.value || {};
+        label = 'Config';
+        color = 'var(--accent)';
+        const parts = [];
+        if (v.kimiModel) parts.push('Kimi: ' + v.kimiModel);
+        if (v.aiMode) parts.push('Mode: ' + v.aiMode);
+        detail = parts.join(' | ') || 'Updated';
+      } else if (a.key.startsWith('bot_log:')) {
+        label = 'Log';
+        detail = typeof a.value === 'string' ? a.value : JSON.stringify(a.value);
+      }
+
+      return `<div class="entry" style="color:${color}">[${ts}] <b>${label}</b>: ${detail}</div>`;
+    }).join('');
+  } catch (e) { /* silently ignore log failures */ }
 }
 
 function fillSelect(id, options, selected) {
@@ -392,20 +642,155 @@ async function updateModel(type) {
   try {
     const r = await api('/config', { method: 'POST', body });
     if (r.error) throw new Error(r.error);
-    logAction(`Config updated: ${JSON.stringify(body)}`);
+    logAction('Config updated: ' + JSON.stringify(body));
   } catch (e) { logAction('Config update failed: ' + e.message, true); }
 }
 
 // --- Control ---
 async function sendCommand(cmd) {
-  if (cmd === 'kill' && !confirm('Kill the bot? It will stop processing messages until manually restarted.')) return;
+  if (cmd === 'kill' && !confirm('KILL the bot? It will stop completely.\nYou will need PM2 or manual restart to bring it back.\n\nContinue?')) return;
+  if (cmd === 'restart' && !confirm('RESTART the bot? It will exit and PM2 will restart it.\nIf PM2 is not running, the bot will stay offline.\n\nContinue?')) return;
 
   try {
     const r = await api('/control', { method: 'POST', body: { command: cmd } });
     if (r.error) throw new Error(r.error);
-    logAction(`Command sent: ${cmd}`);
-    setTimeout(loadStatus, 2000);
+    logAction('Command sent: ' + cmd);
+    if (cmd === 'kill' || cmd === 'restart') {
+      logAction('Bot will go offline. Check status in 30s.', false);
+      setTimeout(loadStatus, 5000);
+      setTimeout(loadStatus, 15000);
+      setTimeout(loadStatus, 30000);
+    } else {
+      setTimeout(loadStatus, 2000);
+    }
   } catch (e) { logAction('Command failed: ' + e.message, true); }
+}
+
+// --- Reports ---
+async function loadReport(type) {
+  switchTab('reports');
+  const output = document.getElementById('reportOutput');
+  const typeLabel = document.getElementById('reportType');
+  output.textContent = 'Generating report...';
+  typeLabel.textContent = '(' + type + ')';
+
+  try {
+    const d = await api('/reports?type=' + type);
+    if (d.error) throw new Error(d.error);
+    output.textContent = d.report || 'No data';
+  } catch (e) {
+    output.textContent = 'Error: ' + e.message;
+    logAction('Report failed: ' + e.message, true);
+  }
+}
+
+// --- Customers ---
+async function searchCustomers() {
+  const search = document.getElementById('customerSearch').value.trim();
+  const params = search ? '?search=' + encodeURIComponent(search) : '?limit=100';
+
+  try {
+    const d = await api('/customers' + params);
+    document.getElementById('customerCount').textContent = '(' + (d.total || 0) + ')';
+
+    document.getElementById('customerTable').innerHTML = (d.customers || []).map(c => {
+      const isRegular = c.totalRentals >= 5;
+      return `<tr>
+        <td>${isRegular ? '⭐ ' : ''}${c.name || '—'}</td>
+        <td>${c.phone || '—'}</td>
+        <td>${c.totalRentals}</td>
+        <td>RM${(c.totalSpent || 0).toLocaleString()}</td>
+        <td>${c.activeRentals.length > 0 ? '<span class="tag tag-green">' + c.activeRentals.length + ' active</span>' : '—'}</td>
+        <td>${(c.lastRental || '').slice(0, 10)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { logAction('Customer search failed: ' + e.message, true); }
+}
+
+// --- Pricing ---
+async function loadPricing() {
+  try {
+    const d = await api('/pricing');
+    const pricing = d.pricing;
+    const zones = d.deliveryZones;
+
+    // Pricing cards
+    const grid = document.getElementById('pricingGrid');
+    if (pricing && typeof pricing === 'object') {
+      // Check if it's a flat object with category keys or nested
+      let categories = {};
+
+      if (pricing.economy || pricing.compact || pricing.suv) {
+        categories = pricing;
+      } else {
+        // Try to extract categories from different structures
+        for (const [key, val] of Object.entries(pricing)) {
+          if (val && typeof val === 'object' && (val.daily || val.daily_rate)) {
+            categories[key] = val;
+          }
+        }
+      }
+
+      if (Object.keys(categories).length > 0) {
+        grid.innerHTML = Object.entries(categories).map(([cat, rates]) => {
+          const r = typeof rates === 'object' ? rates : {};
+          return `<div class="pricing-card">
+            <h3>${cat}</h3>
+            ${r.models ? `<div style="color:var(--dim);font-size:11px;margin-bottom:6px;">${Array.isArray(r.models) ? r.models.join(', ') : r.models}</div>` : ''}
+            <div class="rate"><span>Daily</span><span class="val">RM${r.daily || r.daily_rate || '—'}</span></div>
+            <div class="rate"><span>3-Day</span><span class="val">RM${r.threeDays || r['3day'] || r.three_days || '—'}</span></div>
+            <div class="rate"><span>Weekly</span><span class="val">RM${r.weekly || r.weekly_rate || '—'}</span></div>
+            <div class="rate"><span>Monthly</span><span class="val">RM${r.monthly || r.monthly_rate || '—'}</span></div>
+          </div>`;
+        }).join('');
+      } else {
+        grid.innerHTML = `<pre style="color:var(--accent);font-size:12px;">${JSON.stringify(pricing, null, 2)}</pre>`;
+      }
+    } else {
+      grid.innerHTML = '<div style="color:var(--dim)">No pricing data in bot_data_store</div>';
+    }
+
+    // Delivery zones
+    const dt = document.getElementById('deliveryTable');
+    if (zones && typeof zones === 'object') {
+      dt.innerHTML = Object.entries(zones).map(([zone, info]) => {
+        const areas = info.areas ? (Array.isArray(info.areas) ? info.areas.join(', ') : info.areas) : zone;
+        const fee = info.fee === 0 ? '<span style="color:var(--green)">FREE</span>' : 'RM' + (info.fee || '—');
+        return `<tr>
+          <td>${info.label || zone}</td>
+          <td>${areas}</td>
+          <td>${fee}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      dt.innerHTML = '<tr><td colspan="3" style="color:var(--dim)">No delivery zone data</td></tr>';
+    }
+  } catch (e) { logAction('Pricing load failed: ' + e.message, true); }
+}
+
+// --- Color name helper ---
+function colorName(hex) {
+  if (!hex) return '';
+  const colors = {
+    '#ffffff': 'White', '#000000': 'Black', '#c0c0c0': 'Silver', '#808080': 'Grey',
+    '#ff0000': 'Red', '#0000ff': 'Blue', '#00ff00': 'Green', '#ffff00': 'Yellow',
+    '#ffa500': 'Orange', '#800000': 'Maroon', '#f27218': 'Orange', '#a52a2a': 'Brown',
+    '#1a1a2e': 'Dark Blue', '#2c3e50': 'Dark Grey',
+  };
+  const h = hex.toLowerCase();
+  if (colors[h]) return colors[h];
+  // Parse RGB and guess
+  const r = parseInt(h.slice(1,3), 16), g = parseInt(h.slice(3,5), 16), b = parseInt(h.slice(5,7), 16);
+  if (isNaN(r)) return hex;
+  if (r > 200 && g > 200 && b > 200) return 'White';
+  if (r < 50 && g < 50 && b < 50) return 'Black';
+  if (r > 200 && g < 100 && b < 100) return 'Red';
+  if (r < 100 && g < 100 && b > 200) return 'Blue';
+  if (r > 150 && g > 150 && b < 100) return 'Yellow';
+  if (r > 200 && g > 100 && b < 80) return 'Orange';
+  if (r < 100 && g > 150 && b < 100) return 'Green';
+  if (r > 100 && g > 100 && b > 100) return 'Silver';
+  return hex;
 }
 
 // --- Log ---

@@ -11,8 +11,8 @@ const { auth } = require('./_lib/auth');
 const CONFIG_KEY = 'bot_config';
 
 const VALID_KIMI_MODELS = [
-  'kimi-k2-0905-preview',
   'kimi-k2.5',
+  'kimi-k2-0905-preview',
   'kimi-k2-thinking',
 ];
 
