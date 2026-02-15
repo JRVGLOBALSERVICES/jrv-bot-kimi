@@ -205,7 +205,7 @@ class JarvisBrain {
       }
 
       // "Send voice note" = generate voice message
-      if (/send\s*(a\s*)?voice\s*(note|message|msg)|voice\s*note/i.test(body) && !/transcri/i.test(body)) {
+      if (/send\s*(me\s*)?(a\s*)?voice|voice\s*note|voice\s*msg|speak\s*to\s*me|can\s*you\s*speak|talk\s*to\s*me/i.test(body) && !/transcri/i.test(body)) {
         // Check if TTS is available first
         const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(() => false);
         if (!ttsOk) {
@@ -388,8 +388,17 @@ class JarvisBrain {
   async _handleVoice(msg, response, isAdmin, existingCustomer) {
     const { phone, media } = msg;
 
-    const transcription = await voiceEngine.listen(media.data);
-    console.log(`[JARVIS] Voice from ${phone}: "${transcription.text}"`);
+    let transcription;
+    try {
+      transcription = await voiceEngine.listen(media.data);
+      console.log(`[JARVIS] Voice from ${phone}: "${transcription.text}"`);
+    } catch (err) {
+      console.warn('[JARVIS] STT failed:', err.message);
+      response.text = isAdmin
+        ? `*Voice transcription unavailable*\n\`\`\`\nSTT engine not running.\nInstall: pip install faster-whisper\nOr type your message instead.\n\`\`\``
+        : 'Maaf, saya tidak dapat mendengar mesej suara sekarang. Sila taip mesej anda. / Sorry, I can\'t process voice notes right now. Please type your message.';
+      return;
+    }
 
     const textMsg = { ...msg, body: transcription.text, type: 'chat' };
     const customerHistory = existingCustomer

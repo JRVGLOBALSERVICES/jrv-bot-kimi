@@ -117,13 +117,15 @@ class TTSEngine {
       const textPath = path.join(this.outputDir, 'tts_input.txt');
       fs.writeFileSync(textPath, text, 'utf8');
 
+      const pyPitch = pitch && pitch !== '0%' ? `, pitch="${pitch}"` : '';
+      const pyRate = speed !== 1.0 ? `, rate="${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%"` : '';
       const pyScript = `
 import edge_tts, asyncio, sys
 
 async def main():
     with open(r"${textPath}", "r", encoding="utf-8") as f:
         text = f.read()
-    communicate = edge_tts.Communicate(text, "${voice}")
+    communicate = edge_tts.Communicate(text, "${voice}"${pyRate}${pyPitch})
     await communicate.save(r"${outputPath}")
     print("OK", file=sys.stderr)
 
