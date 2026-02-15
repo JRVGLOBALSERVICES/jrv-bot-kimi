@@ -91,6 +91,7 @@ class SyncEngine {
         value: {
           online: true,
           mode: config.mode,
+          kimiModel: config.kimi.model,
           cars: this.cache.cars.length,
           agreements: this.cache.agreements.length,
           lastSync: this.cache.lastSync?.toISOString(),

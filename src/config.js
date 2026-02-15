@@ -12,11 +12,11 @@ const config = {
 
   // Kimi K2 (cloud API - complex tasks)
   // Get key: https://platform.moonshot.ai
-  // Models: kimi-k2-0905-preview, kimi-k2.5, kimi-k2-thinking
+  // Models: kimi-k2.5 (best), kimi-k2-0905-preview (fast), kimi-k2-thinking (reasoning)
   kimi: {
     apiKey: process.env.KIMI_API_KEY,
     apiUrl: process.env.KIMI_API_URL || 'https://api.moonshot.ai/v1',
-    model: process.env.KIMI_MODEL || 'kimi-k2-0905-preview',
+    model: process.env.KIMI_MODEL || 'kimi-k2.5',
     thinkingModel: process.env.KIMI_THINKING_MODEL || 'kimi-k2-thinking',
   },
 
