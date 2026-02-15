@@ -103,7 +103,13 @@ class TTSEngine {
     const pyPitch = pitch && pitch !== '0%' ? `, pitch="${pitch}"` : '';
     const pyRate = speed !== 1.0 ? `, rate="${speed > 1 ? '+' : ''}${Math.round((speed - 1) * 100)}%"` : '';
     const pyScript = `
-import edge_tts, asyncio, sys
+import sys, asyncio, traceback
+
+try:
+    import edge_tts
+except ImportError:
+    print("ERROR: edge_tts not installed. Run: pip install edge-tts", file=sys.stderr)
+    sys.exit(1)
 
 async def main():
     with open(r"${textPath.replace(/\\/g, '\\\\')}", "r", encoding="utf-8") as f:
@@ -112,7 +118,14 @@ async def main():
     await communicate.save(r"${outputPath.replace(/\\/g, '\\\\')}")
     print("OK")
 
-asyncio.run(main())
+try:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+    loop.close()
+except Exception as e:
+    traceback.print_exc()
+    sys.exit(1)
 `.trim();
     const pyPath = path.join(this.outputDir, `tts_${Date.now()}.py`);
     fs.writeFileSync(pyPath, pyScript);
