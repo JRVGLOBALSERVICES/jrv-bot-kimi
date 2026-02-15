@@ -4,7 +4,6 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "framework": null,
-  "nodeVersion": "18.x",
   "functions": {
     "api/**/*.js": {
       "maxDuration": 10
