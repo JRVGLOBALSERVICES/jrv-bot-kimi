@@ -101,14 +101,24 @@ class AIRouter {
     try {
       let result;
 
-      // Kimi K2 — primary cloud with tool calling
+      // Kimi K2 — primary cloud
       if ((tier === 'cloud' || !this.localAvailable) && this.kimiAvailable) {
         this.stats.cloud++;
-        result = await kimiClient.chatWithTools(
-          messages, TOOLS,
-          async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
-          { systemPrompt: fullSystemPrompt }
-        );
+        // Simple queries: skip tool calling for faster response
+        const needsTools = /available|booking|fleet|car|customer|price|report|earn|expir|overdue|how many|list|count/i.test(userMessage);
+        if (needsTools) {
+          result = await kimiClient.chatWithTools(
+            messages, TOOLS,
+            async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
+            { systemPrompt: fullSystemPrompt, maxRounds: 3 }
+          );
+        } else {
+          // No tools needed — direct chat is 2-3x faster
+          result = await kimiClient.chat(messages, {
+            systemPrompt: fullSystemPrompt,
+            maxTokens: 2048,
+          });
+        }
         result = { ...result, tier: 'cloud' };
       }
       // Ollama — local fallback

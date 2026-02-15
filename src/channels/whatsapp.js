@@ -90,7 +90,23 @@ class WhatsAppChannel {
         resolved = true;
       }
 
-      // 2. Try contact.number (whatsapp-web.js userid field)
+      // 2. Check configured LID_PHONE_MAP (most reliable — set once in .env)
+      // Format: LID_PHONE_MAP=47687122567393=60138606455,otherLid=otherPhone
+      if (!resolved) {
+        const map = (process.env.LID_PHONE_MAP || '').split(',').filter(Boolean);
+        for (const entry of map) {
+          const [lid, ph] = entry.split('=');
+          if (lid && ph && lidId.includes(lid.trim())) {
+            phone = ph.trim().replace(/\D/g, '');
+            this._lidCache.set(lidId, phone);
+            resolved = true;
+            console.log(`[WhatsApp] LID resolved via LID_PHONE_MAP: ${lidId} → ${phone}`);
+            break;
+          }
+        }
+      }
+
+      // 3. Try contact.number (whatsapp-web.js userid field)
       if (!resolved && contact.number) {
         phone = contact.number.replace(/\D/g, '');
         this._lidCache.set(lidId, phone);
@@ -98,10 +114,9 @@ class WhatsAppChannel {
         console.log(`[WhatsApp] LID resolved via contact.number: ${lidId} → ${phone}`);
       }
 
-      // 3. Try contact.id.user
+      // 4. Try contact.id.user
       if (!resolved && contact.id?.user && !contact.id.user.includes('@')) {
         const idUser = contact.id.user.replace(/\D/g, '');
-        // Only use if it looks like a phone number (starts with country code)
         if (idUser.length >= 10 && /^[1-9]/.test(idUser)) {
           phone = idUser;
           this._lidCache.set(lidId, phone);
@@ -110,7 +125,7 @@ class WhatsAppChannel {
         }
       }
 
-      // 4. Try getNumberId() API call
+      // 5. Try getNumberId() API call
       if (!resolved) {
         try {
           const numberId = await this.client.getNumberId(contact.id._serialized);
@@ -125,8 +140,23 @@ class WhatsAppChannel {
         }
       }
 
+      // 6. Last resort: match pushname against known admin names
       if (!resolved) {
-        console.warn(`[WhatsApp] Could not resolve LID ${lidId} to phone number. Admin detection may fail.`);
+        const pushName = (contact.pushname || contact.name || '').toLowerCase();
+        const adminNames = { rj: '60138606455', vir: '60138845477' };
+        for (const [name, ph] of Object.entries(adminNames)) {
+          if (pushName && pushName.includes(name)) {
+            phone = ph;
+            this._lidCache.set(lidId, phone);
+            resolved = true;
+            console.log(`[WhatsApp] LID resolved via pushname match: ${lidId} → ${phone} (name: ${pushName})`);
+            break;
+          }
+        }
+      }
+
+      if (!resolved) {
+        console.warn(`[WhatsApp] Could not resolve LID ${lidId}. pushname="${contact.pushname}", contact.number="${contact.number}"`);
       }
     }
 
