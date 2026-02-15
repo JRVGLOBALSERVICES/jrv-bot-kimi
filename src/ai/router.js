@@ -84,7 +84,7 @@ class AIRouter {
     }
 
     const context = syncEngine.buildContextSummary();
-    const policyContext = policies.buildPolicyContext();
+    const policyContext = policies.buildPolicyContext(isAdmin);
     const fullSystemPrompt = this._buildSystemPrompt(context, policyContext, isAdmin, systemPrompt);
 
     let tier = forceCloud ? 'cloud' : forceLocal ? 'local' : this.classify(userMessage);
@@ -106,7 +106,7 @@ class AIRouter {
         this.stats.cloud++;
         result = await kimiClient.chatWithTools(
           messages, TOOLS,
-          async (name, args) => { this.stats.toolCalls++; return executeTool(name, args); },
+          async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
           { systemPrompt: fullSystemPrompt }
         );
         result = { ...result, tier: 'cloud' };
@@ -139,7 +139,7 @@ class AIRouter {
       }
       if (tier === 'local' && this.kimiAvailable) {
         this.stats.fallback++;
-        const result = await kimiClient.chatWithTools(messages, TOOLS, executeTool, { systemPrompt: fullSystemPrompt });
+        const result = await kimiClient.chatWithTools(messages, TOOLS, async (name, args) => executeTool(name, args, { isAdmin }), { systemPrompt: fullSystemPrompt });
         return { ...result, tier: 'fallback-cloud' };
       }
 

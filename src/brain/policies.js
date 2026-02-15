@@ -342,8 +342,9 @@ class Policies {
 
   /**
    * Build AI system prompt section for policies.
+   * @param {boolean} isAdmin - If false, admin phones and sensitive data are stripped.
    */
-  buildPolicyContext() {
+  buildPolicyContext(isAdmin = false) {
     const lines = [
       '=== JRV BUSINESS POLICIES ===',
       '',
@@ -379,11 +380,17 @@ class Policies {
       `--- INSURANCE ---`,
       `${this.insurance.note}`,
       '',
-      `--- ADMINS ---`,
-      ...this.admins.list.map(a => `${a.name} (${a.role}): ${a.phone}`),
-      `Superadmin: ${this.admins.superadmin.name} ${this.admins.superadmin.phone}`,
-      `Business: +${this.admins.businessNumber}`,
+      `Business WhatsApp: +${this.admins.businessNumber}`,
     ];
+
+    // Only include admin details for admin users
+    if (isAdmin) {
+      lines.push('');
+      lines.push('--- ADMINS ---');
+      lines.push(...this.admins.list.map(a => `${a.name} (${a.role}): ${a.phone}`));
+      lines.push(`Superadmin: ${this.admins.superadmin.name} ${this.admins.superadmin.phone}`);
+    }
+
     return lines.join('\n');
   }
 }
