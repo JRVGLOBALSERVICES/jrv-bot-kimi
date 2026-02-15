@@ -109,31 +109,11 @@ class TTSEngine {
 
     console.log(`[TTS] Edge TTS (Node.js): voice=${voice} rate=${rateStr} pitch=${pitchStr}`);
 
-    const readable = tts.toStream(text, { rate: rateStr, pitch: pitchStr });
+    // Use toFile() — saves to directory, returns { audioFilePath }
+    const { audioFilePath } = await tts.toFile(this.outputDir, text, { rate: rateStr, pitch: pitchStr });
 
-    // Collect audio chunks and write to file
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      readable.on('data', (chunk) => {
-        // msedge-tts emits objects with 'audio' buffer property
-        if (chunk.audio) {
-          chunks.push(chunk.audio);
-        } else if (Buffer.isBuffer(chunk)) {
-          chunks.push(chunk);
-        }
-      });
-      readable.on('end', resolve);
-      readable.on('error', reject);
-      // Timeout after 30 seconds
-      setTimeout(() => reject(new Error('Edge TTS timed out')), 30000);
-    });
-
-    if (chunks.length === 0) {
-      throw new Error('Edge TTS returned no audio data');
-    }
-
-    const audioBuffer = Buffer.concat(chunks);
-    fs.writeFileSync(outputPath, audioBuffer);
+    // Rename to our desired output path
+    fs.renameSync(audioFilePath, outputPath);
 
     const stats = fs.statSync(outputPath);
     console.log(`[TTS] Generated ${stats.size} bytes: ${outputPath}`);
