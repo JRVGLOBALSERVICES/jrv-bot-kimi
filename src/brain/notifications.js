@@ -175,6 +175,59 @@ class NotificationManager {
   }
 
   /**
+   * Customer location received — forward to admin with zone info.
+   */
+  async onLocationReceived(phone, name, lat, lng, zone, geo) {
+    const locationService = require('../utils/location');
+    const msg = locationService.formatLocationNotification(phone, name, lat, lng, zone, geo);
+    await this.notifySuperadmin(msg);
+  }
+
+  /**
+   * Forward actual media (image/document/video) to superadmin.
+   * Sends the actual file, not just a text notification.
+   * @param {string} phone - Customer phone
+   * @param {string} name - Customer name
+   * @param {object} media - { data: Buffer, mimetype, filename }
+   * @param {string} mediaType - 'image', 'document', 'video', 'payment_proof'
+   * @param {string} caption - Original caption
+   * @param {string} cloudUrl - Cloudinary URL if uploaded
+   */
+  async forwardMedia(phone, name, media, mediaType, caption = '', cloudUrl = '') {
+    const forwardCaption = `From: ${name} (+${phone})\n` +
+      `Type: ${mediaType}` +
+      (caption ? `\nCaption: ${caption.slice(0, 100)}` : '') +
+      (cloudUrl ? `\nCloud: ${cloudUrl}` : '');
+
+    if (this.whatsapp && this.whatsapp.isConnected && this.whatsapp.isConnected()) {
+      try {
+        // Send actual media to superadmin
+        await this.whatsapp.forwardMediaToAdmin(
+          media.data,
+          media.mimetype,
+          media.filename || `${mediaType}_${Date.now()}`,
+          forwardCaption
+        );
+        console.log(`[Notify] Forwarded ${mediaType} from ${name} to admin`);
+        return;
+      } catch (err) {
+        console.warn('[Notify] Media forward failed, falling back to text:', err.message);
+      }
+    }
+
+    // Fallback: send text notification with cloud URL
+    const textMsg = `*Customer ${mediaType === 'payment_proof' ? 'Payment Proof' : 'Media'}*\n` +
+      '```\n' +
+      `From: ${name} (+${phone})\n` +
+      `Type: ${mediaType}\n` +
+      (caption ? `Caption: ${caption.slice(0, 150)}\n` : '') +
+      '```' +
+      (cloudUrl ? `\nView: ${cloudUrl}` : '\n_Media stored locally_');
+
+    await this.notifySuperadmin(textMsg);
+  }
+
+  /**
    * Flush queued notifications (called when WhatsApp reconnects).
    */
   async flushQueue() {

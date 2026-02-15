@@ -126,6 +126,29 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_delivery_by_coordinates',
+      description: 'Calculate delivery fee from GPS coordinates. Use when customer shares location.',
+      parameters: {
+        type: 'object',
+        properties: {
+          latitude: { type: 'number', description: 'Latitude' },
+          longitude: { type: 'number', description: 'Longitude' },
+        },
+        required: ['latitude', 'longitude'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_jrv_location',
+      description: 'Get JRV Car Rental office location (Google Maps link).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_policies',
       description: 'Get specific business policy information.',
       parameters: {
@@ -260,6 +283,32 @@ async function executeTool(name, args) {
         documents: policies.documents,
       };
       return map[p] || { error: `Unknown policy: ${p}`, available: Object.keys(map) };
+    }
+
+    case 'get_delivery_by_coordinates': {
+      const locationService = require('../utils/location');
+      const zone = locationService.matchDeliveryZone(args.latitude, args.longitude);
+      const geo = await locationService.reverseGeocode(args.latitude, args.longitude);
+      return {
+        address: geo.fullAddress || 'Unknown',
+        area: geo.area || 'Unknown',
+        zone: zone.zone,
+        fee: zone.fee,
+        distanceKm: zone.distanceKm,
+        label: zone.label,
+        mapsLink: locationService.mapsLink(args.latitude, args.longitude),
+        directionsToJrv: locationService.directionsToJrv(args.latitude, args.longitude),
+      };
+    }
+
+    case 'get_jrv_location': {
+      const locationService = require('../utils/location');
+      return {
+        name: 'JRV Car Rental',
+        address: 'Seremban, Negeri Sembilan, Malaysia',
+        mapsLink: locationService.jrvLocation(),
+        coordinates: { lat: 2.7258, lng: 101.9424 },
+      };
     }
 
     default:
