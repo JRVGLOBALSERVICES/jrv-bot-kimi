@@ -65,6 +65,15 @@ const config = {
     adminPhones: (process.env.ADMIN_PHONES || '').split(',').filter(Boolean),
   },
 
+  // Cloudinary (media storage)
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    apiSecret: process.env.CLOUDINARY_API_SECRET,
+    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || 'jrv_voice',
+    enabled: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY),
+  },
+
   // Paths
   paths: {
     cache: './cache',
@@ -90,6 +99,9 @@ if (!config.kimi.apiKey || config.kimi.apiKey === 'placeholder') {
 }
 if (!config.gemini.apiKey) {
   console.warn('[Config] GEMINI_API_KEY not set. No Gemini fallback available.');
+}
+if (!config.cloudinary.enabled) {
+  console.warn('[Config] Cloudinary not configured. Media will be stored locally only.');
 }
 
 module.exports = config;

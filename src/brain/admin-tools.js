@@ -15,6 +15,7 @@ const policies = require('./policies');
 const reminders = require('./reminders');
 const { syncEngine, dataStoreService, fleetService, agreementsService } = require('../supabase/services');
 const fileSafety = require('../utils/file-safety');
+const cloudinary = require('../media/cloudinary');
 
 const BOSS_PHONE = '60138606455';
 
@@ -95,6 +96,34 @@ class AdminTools {
 
       case 'system':
         return this._systemInfo();
+
+      // Cloudinary media tools
+      case 'cloud':
+      case 'cloudinary':
+        return this._cloudinaryInfo();
+
+      case 'cloud-voice':
+        return this._cloudList('jrv/voice', 'video');
+
+      case 'cloud-images':
+        return this._cloudList('jrv/images', 'image');
+
+      case 'cloud-videos':
+        return this._cloudList('jrv/videos', 'video');
+
+      case 'cloud-delete':
+        return this._cloudDelete(args);
+
+      case 'generate-image':
+      case 'gen-image':
+        return this._generateImage(args);
+
+      case 'generate-video':
+      case 'gen-video':
+        return this._generateVideo(args);
+
+      case 'upload':
+        return this._uploadInfo();
 
       case 'tools':
       case 'help':
@@ -549,6 +578,150 @@ Requirements:
     };
   }
 
+  // ─── Cloudinary Media Commands ──────────────────────
+
+  /**
+   * Show Cloudinary storage info and usage.
+   */
+  async _cloudinaryInfo() {
+    if (!cloudinary.isAvailable()) {
+      return { error: 'Cloudinary not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET to .env' };
+    }
+
+    try {
+      const usage = await cloudinary.getUsage();
+      return {
+        status: 'connected',
+        cloudName: cloudinary.cloudName,
+        ...usage,
+      };
+    } catch (err) {
+      return { status: 'error', message: err.message };
+    }
+  }
+
+  /**
+   * List files in a Cloudinary folder.
+   */
+  async _cloudList(folder, resourceType) {
+    if (!cloudinary.isAvailable()) return { error: 'Cloudinary not configured' };
+    try {
+      const files = await cloudinary.listFolder(folder, resourceType);
+      return { folder, count: files.length, files };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  /**
+   * Delete a file from Cloudinary by public ID.
+   */
+  async _cloudDelete(args) {
+    if (!cloudinary.isAvailable()) return { error: 'Cloudinary not configured' };
+    if (args.length === 0) return { error: 'Usage: /tool cloud-delete <public_id> [resource_type]' };
+    const publicId = args[0];
+    const resourceType = args[1] || 'image';
+    try {
+      const result = await cloudinary.delete(publicId, resourceType);
+      return { deleted: publicId, result };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  /**
+   * Generate an image via AI and upload to Cloudinary.
+   */
+  async _generateImage(args) {
+    if (args.length === 0) return { error: 'Usage: /tool generate-image <description>' };
+    const prompt = args.join(' ');
+    try {
+      const { imageGenerator } = require('../media');
+      const result = await imageGenerator.generate(prompt);
+      return {
+        prompt,
+        engine: result.engine,
+        cloudUrl: result.cloudUrl || null,
+        localPath: result.filePath || null,
+      };
+    } catch (err) {
+      return { error: `Image generation failed: ${err.message}` };
+    }
+  }
+
+  /**
+   * Generate a video (Cloudinary video transformations or AI).
+   * Creates a slideshow/animation from existing Cloudinary images.
+   */
+  async _generateVideo(args) {
+    if (!cloudinary.isAvailable()) return { error: 'Cloudinary not configured' };
+    if (args.length === 0) {
+      return {
+        error: 'Usage: /tool generate-video <type> [args]',
+        types: {
+          'slideshow': 'Create slideshow from jrv/images folder',
+          'promo': 'Generate JRV promo video with text overlay',
+        },
+      };
+    }
+
+    const type = args[0];
+
+    if (type === 'slideshow') {
+      // List images and create a Cloudinary slideshow URL
+      try {
+        const images = await cloudinary.listFolder('jrv/images', 'image', 10);
+        if (images.length === 0) return { error: 'No images in jrv/images. Upload some first.' };
+
+        return {
+          type: 'slideshow',
+          note: 'Cloudinary can create slideshows via their Video API. Use the URLs below.',
+          images: images.map(img => img.url),
+          count: images.length,
+        };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
+
+    if (type === 'promo') {
+      const text = args.slice(1).join(' ') || 'JRV Car Rental - Seremban';
+      return {
+        type: 'promo',
+        note: 'Video generation requires Cloudinary Video API or external service.',
+        text,
+        suggestion: 'Upload a base video to jrv/videos, then use Cloudinary transformations for text overlays.',
+      };
+    }
+
+    return { error: `Unknown video type: ${type}. Use 'slideshow' or 'promo'.` };
+  }
+
+  /**
+   * Info about uploading media to Cloudinary.
+   */
+  _uploadInfo() {
+    return {
+      note: 'Media is auto-uploaded to Cloudinary when generated.',
+      folders: {
+        'jrv/voice': 'TTS voice notes (auto-uploaded)',
+        'jrv/images': 'Generated/uploaded images (auto-uploaded)',
+        'jrv/videos': 'Uploaded videos',
+        'jrv/sites': 'Generated website HTML',
+        'jrv/documents': 'Customer documents',
+      },
+      commands: {
+        '/tool cloud': 'Storage usage stats',
+        '/tool cloud-voice': 'List voice notes',
+        '/tool cloud-images': 'List images',
+        '/tool cloud-videos': 'List videos',
+        '/tool cloud-delete <id>': 'Delete from cloud',
+        '/tool generate-image <desc>': 'AI image generation',
+        '/tool generate-video <type>': 'Video generation',
+      },
+    };
+  }
+
   /**
    * Help text for admin tools.
    */
@@ -571,6 +744,14 @@ Requirements:
         '/tool safety-log': 'File safety audit log',
         '/tool pc': 'Full PC performance (CPU, RAM, temp, battery, GPU)',
         '/tool system': 'System info (basic)',
+        '/tool cloud': 'Cloudinary storage usage',
+        '/tool cloud-voice': 'List cloud voice notes',
+        '/tool cloud-images': 'List cloud images',
+        '/tool cloud-videos': 'List cloud videos',
+        '/tool cloud-delete <id> [type]': 'Delete from Cloudinary',
+        '/tool generate-image <desc>': 'AI generate image',
+        '/tool generate-video <type>': 'Video generation',
+        '/tool upload': 'Upload/cloud info',
       },
       note: 'Boss-only commands. Access restricted to +60138606455.',
     };

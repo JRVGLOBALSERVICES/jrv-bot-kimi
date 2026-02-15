@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const jarvisVoice = require('./jarvis-voice');
 const fileSafety = require('../utils/file-safety');
+const cloudinary = require('../media/cloudinary');
 
 /**
  * Text-to-Speech Engine with JARVIS Voice Profile
@@ -38,19 +39,34 @@ class TTSEngine {
     const outputPath = path.join(this.outputDir, `tts_${Date.now()}.mp3`);
     const voiceSpeed = speed || jarvisVoice.getSpeed();
 
+    let result;
     try {
-      const result = await this._piperLocal(text, outputPath, language, voiceSpeed);
-      return result;
+      result = await this._piperLocal(text, outputPath, language, voiceSpeed);
     } catch (localErr) {
       console.warn('[TTS] Local Piper failed:', localErr.message);
       try {
-        const result = await this._edgeTTS(text, outputPath, language, voiceSpeed);
-        return result;
+        result = await this._edgeTTS(text, outputPath, language, voiceSpeed);
       } catch (edgeErr) {
         console.error('[TTS] All TTS engines failed:', edgeErr.message);
         throw new Error('Text-to-speech failed: no engines available');
       }
     }
+
+    // Upload to Cloudinary if available
+    if (cloudinary.isAvailable()) {
+      try {
+        const upload = await cloudinary.uploadVoice(outputPath);
+        result.cloudUrl = upload.secureUrl;
+        result.publicId = upload.publicId;
+        console.log(`[TTS] Uploaded to Cloudinary: ${upload.secureUrl}`);
+        // Clean up local file after successful upload
+        try { fs.unlinkSync(outputPath); } catch {}
+      } catch (err) {
+        console.warn('[TTS] Cloudinary upload failed, keeping local:', err.message);
+      }
+    }
+
+    return result;
   }
 
   async _piperLocal(text, outputPath, language, speed) {
