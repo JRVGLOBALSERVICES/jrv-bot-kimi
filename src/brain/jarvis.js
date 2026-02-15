@@ -579,6 +579,13 @@ class JarvisBrain {
     if (lower.startsWith('/remind ')) return { cmd: 'remind', text: text.slice(8).trim() };
     if (lower.match(/^\/delete-reminder\s+(\d+)/)) return { cmd: 'delete-reminder', id: parseInt(lower.match(/\d+/)[0]) };
 
+    // Model switching shortcut (boss only)
+    if (lower.startsWith('/switch') && isBoss) {
+      const arg = text.slice(7).trim();
+      const parts = arg ? arg.split(/\s+/) : [];
+      return { cmd: 'tool', toolCmd: 'switch', toolArgs: parts };
+    }
+
     // Voice profile
     if (lower.startsWith('/voice ')) return { cmd: 'voice', profile: text.slice(7).trim() };
 

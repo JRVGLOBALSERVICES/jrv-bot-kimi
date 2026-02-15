@@ -62,6 +62,9 @@ class AdminTools {
       case 'set':
         return this._setConfig(args);
 
+      case 'switch':
+        return this._switchProvider(args);
+
       case 'sql':
       case 'query':
         return this._queryData(args);
@@ -261,13 +264,18 @@ Requirements:
    */
   _showConfig() {
     const config = require('../config');
+    const activeModel = config.cloudProvider === 'groq' ? config.groq.model : config.kimi.model;
     return {
       mode: config.mode,
-      kimi: { model: config.kimi.model, url: config.kimi.apiUrl },
+      cloudProvider: config.cloudProvider,
+      activeModel,
+      kimi: { model: config.kimi.model, available: !!config.kimi.apiKey },
+      groq: { model: config.groq.model, available: !!config.groq.apiKey },
       gemini: { model: config.gemini?.model || 'not configured' },
       localAI: { model: config.localAI.model, url: config.localAI.url },
       tts: { voice: config.tts.edgeVoice },
       admins: policies.admins.list.map(a => `${a.name}(${a.phone})`),
+      switchCmd: '/switch <kimi|groq> [model]',
     };
   }
 
@@ -276,7 +284,7 @@ Requirements:
    */
   _setConfig(args) {
     if (args.length < 2) {
-      return { error: 'Usage: /tool set <key> <value>\nKeys: voice, model, mode' };
+      return { error: 'Usage: /tool set <key> <value>\nKeys: voice, model, provider, mode' };
     }
 
     const [key, ...valueParts] = args;
@@ -288,14 +296,81 @@ Requirements:
         config.tts.edgeVoice = value;
         return { set: 'tts.edgeVoice', value };
       case 'model':
+        // Smart model set: detect provider from model name
+        if (value.startsWith('kimi-')) {
+          config.kimi.model = value;
+          config.cloudProvider = 'kimi';
+          return { set: 'kimi.model', value, provider: 'kimi' };
+        } else if (value.startsWith('llama') || value.startsWith('mixtral') || value.startsWith('gemma')) {
+          config.groq.model = value;
+          config.cloudProvider = 'groq';
+          return { set: 'groq.model', value, provider: 'groq' };
+        }
         config.kimi.model = value;
         return { set: 'kimi.model', value };
+      case 'provider':
+        return this._switchProvider([value]);
       case 'mode':
         config.mode = value;
         return { set: 'mode', value };
       default:
         return { error: `Unknown config key: ${key}` };
     }
+  }
+
+  /**
+   * Switch AI provider and optionally model.
+   * Usage: /tool switch groq [model]
+   *        /tool switch kimi [model]
+   */
+  _switchProvider(args) {
+    if (args.length === 0) {
+      const config = require('../config');
+      return {
+        current: config.cloudProvider,
+        model: config.cloudProvider === 'groq' ? config.groq.model : config.kimi.model,
+        usage: '/tool switch <kimi|groq> [model]',
+        available: {
+          kimi: ['kimi-k2.5', 'kimi-k2-0905-preview', 'kimi-k2-thinking'],
+          groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'gemma2-9b-it', 'mixtral-8x7b-32768'],
+        },
+      };
+    }
+
+    const config = require('../config');
+    const provider = args[0].toLowerCase();
+    const model = args[1] || null;
+
+    if (provider === 'groq') {
+      if (!config.groq.apiKey) {
+        return { error: 'GROQ_API_KEY not set. Add it to .env first.' };
+      }
+      config.cloudProvider = 'groq';
+      if (model) config.groq.model = model;
+      return {
+        switched: 'groq',
+        model: config.groq.model,
+        note: 'Now using Groq (Llama). Fast & free tier.',
+      };
+    }
+
+    if (provider === 'kimi') {
+      if (!config.kimi.apiKey) {
+        return { error: 'KIMI_API_KEY not set. Add it to .env first.' };
+      }
+      config.cloudProvider = 'kimi';
+      if (model) config.kimi.model = model;
+      return {
+        switched: 'kimi',
+        model: config.kimi.model,
+        note: 'Now using Kimi K2.5 (Moonshot AI).',
+      };
+    }
+
+    return {
+      error: `Unknown provider: ${provider}`,
+      valid: ['kimi', 'groq'],
+    };
   }
 
   /**
@@ -848,6 +923,8 @@ Requirements:
         '/tool export <cars|bookings|store|all>': 'Export data',
         '/tool config': 'Show configuration',
         '/tool set <key> <value>': 'Change setting',
+        '/tool switch <kimi|groq> [model]': 'Switch AI provider',
+        '/switch <kimi|groq> [model]': 'Shortcut for switch',
         '/tool query <type>': 'Query Supabase data',
         '/tool reminder-all': 'List all reminders',
         '/tool clear-reminders <phone>': 'Clear reminders',
