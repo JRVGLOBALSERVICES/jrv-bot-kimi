@@ -287,7 +287,7 @@ class KimiClient {
           // Execute with 15s timeout
           toolResult = await Promise.race([
             toolExecutor(toolName, args),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 15s`)), 15000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 45s`)), 45000)),
           ]);
         } catch (err) {
           console.warn(`[Kimi] Tool ${toolCall.function?.name} error:`, err.message);

@@ -267,7 +267,7 @@ class GroqClient {
 
           toolResult = await Promise.race([
             toolExecutor(toolName, args),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 15s`)), 15000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 45s`)), 45000)),
           ]);
         } catch (err) {
           console.warn(`[Groq] Tool ${toolCall.function?.name} error:`, err.message);
