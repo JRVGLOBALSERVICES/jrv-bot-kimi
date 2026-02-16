@@ -926,15 +926,12 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         keys = requested.split(/[,\s]+/).map(k => k.trim()).filter(Boolean);
       }
 
-      const results = [];
-      for (const key of keys) {
+      // Execute ALL reports in parallel (was sequential — 6 reports = 30s+ timeout)
+      const tasks = keys.map(key => {
         const gen = reportMap[key];
-        if (gen) {
-          results.push(await gen());
-        } else {
-          results.push(`Unknown report: ${key}`);
-        }
-      }
+        return gen ? gen().catch(err => `Report ${key} error: ${err.message}`) : Promise.resolve(`Unknown report: ${key}`);
+      });
+      const results = await Promise.all(tasks);
       // Reports are pre-formatted WhatsApp text — AI must send as-is
       return results.join('\n\n───────────────\n\n');
     }
