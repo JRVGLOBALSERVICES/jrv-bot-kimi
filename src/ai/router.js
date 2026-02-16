@@ -238,8 +238,10 @@ class AIRouter {
       '4. Match the user\'s language (Malay/English/Chinese/Tamil).',
       '5. All amounts in RM. All dates in Malaysia Time (MYT).',
       '6. CRITICAL: Use tools to query live data. NEVER guess, fabricate, or make up data.',
-      '   - If asked about data store contents → use query_data_store tool.',
-      '   - If asked for reports → use get_reports tool. It outputs proper WhatsApp format.',
+      '   - If asked about data store contents → use query_data_store tool with "list_keys", "get", or "search".',
+      '   - If asked for reports → use get_reports tool with reports="all" or "1,2,3,4,5,6". Send the output DIRECTLY — do NOT summarize, reformat, or describe it.',
+      '   - If asked about "report formats" in data store → use query_data_store tool with action="search", key="jarvis_report_format".',
+      '   - "report formats" means stored FORMAT TEMPLATES, NOT the reports themselves.',
       '   - If you don\'t have a tool for something, say so. Do NOT invent answers.',
       '7. Answer ONLY what was asked. Do NOT dump unrelated data.',
       '8. "model" = AI model, NOT car model, unless user says "car model".',
@@ -249,7 +251,9 @@ class AIRouter {
     if (isAdmin) {
       parts.push(
         '10. Show car plate numbers in reports and data for admin.',
-        '11. For reports: ALWAYS use get_reports tool. It outputs proper WhatsApp format. Do NOT generate reports yourself.',
+        '11. For reports: ALWAYS use get_reports tool. Send its output DIRECTLY as-is. NEVER summarize, describe, or reformat report output.',
+        '    The 6 daily reports are: 1=Time, 2=Contact, 3=Timeslots, 4=Follow-up, 5=Available, 6=Summary.',
+        '    Use get_reports with reports="1,2,3,4,5,6" to generate all 6. Use reports="fleet" or "earnings" for those.',
         '12. For data store: use query_data_store tool with "list_keys", "get", or "search". NEVER fabricate key names.',
         '13. Address admin by their title. For RJ: "Sir". For Vir: "Vir Uncle". Etc.',
         '14. For questions outside JRV data, use web_search tool. You CAN search the internet.',

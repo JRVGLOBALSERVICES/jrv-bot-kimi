@@ -597,6 +597,7 @@ class JarvisBrain {
     if (lower.startsWith('/search ')) return { cmd: 'search', arg: text.slice(8).trim() };
     if (lower === '/pricing' || lower === '/price' || lower === '/harga') return { cmd: 'pricing' };
     if ((lower === '/report' || lower === '/daily') && isAdmin) return { cmd: 'report' };
+    if ((lower === '/report1-6' || lower === '/reports' || lower === '/allreports') && isAdmin) return { cmd: 'report-all' };
     if ((lower === '/report1' || lower === '/sorted-time') && isAdmin) return { cmd: 'report1' };
     if ((lower === '/report2' || lower === '/sorted-contact') && isAdmin) return { cmd: 'report2' };
     if ((lower === '/report3' || lower === '/sorted-timeslot') && isAdmin) return { cmd: 'report3' };
@@ -738,6 +739,19 @@ class JarvisBrain {
         break;
       }
       case 'report': { response.text = await reports.dailySummary(); break; }
+      case 'report-all': {
+        // Generate all 6 reports at once
+        const allReports = await Promise.all([
+          reports.sortedByTime(),
+          reports.sortedByContact(),
+          reports.sortedByTimeslot(),
+          reports.followUpReport(),
+          reports.availableReport(),
+          reports.summaryReport(),
+        ]);
+        response.text = allReports.join('\n\n───────────────\n\n');
+        break;
+      }
       case 'report1': { response.text = await reports.sortedByTime(); break; }
       case 'report2': { response.text = await reports.sortedByContact(); break; }
       case 'report3': { response.text = await reports.sortedByTimeslot(); break; }
@@ -786,6 +800,7 @@ class JarvisBrain {
         if (command.isAdmin) {
           response.text += `\n*Admin Reports:*\n\`\`\`\n` +
             `/report      Daily summary\n` +
+            `/report1-6   ALL 6 reports at once\n` +
             `/report1     Sorted by time\n` +
             `/report2     Sorted by contact\n` +
             `/report3     Sorted by timeslot\n` +
