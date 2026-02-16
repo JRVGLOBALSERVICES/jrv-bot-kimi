@@ -190,7 +190,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'get_reports',
-      description: 'Generate daily business reports. Can generate one or multiple reports at once. Report types: 1=Sorted by Time, 2=Contact List, 3=Today Timeslots, 4=Follow-up Required, 5=Available Cars, 6=Daily Summary, fleet=Fleet Status, earnings=Revenue. Use "all" or "1,2,3,4,5,6" to get all daily reports.',
+      description: 'Generate daily business reports with LIVE data. Reports: 1=Sorted by Time, 2=Contact List, 3=Today Timeslots, 4=Follow-up Required, 5=Available Cars, 6=Daily Summary, fleet=Fleet Status, earnings=Revenue. Use "all" or "1,2,3,4,5,6" for all 6 daily reports. Output is WhatsApp-formatted — send directly, do NOT reformat or summarize. If stored format templates exist in data store, they are appended.',
       parameters: {
         type: 'object',
         properties: {
@@ -942,10 +942,12 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         const gen = reportMap[key];
         if (gen) {
           const report = await gen();
-          // If there's a stored format template for this report,
-          // append it as a hint — AI can use it to reformat if asked
           if (storedFormats[key]) {
-            results.push(report);
+            // Append stored format template so AI can reformat if asked
+            const fmt = typeof storedFormats[key] === 'string'
+              ? storedFormats[key]
+              : JSON.stringify(storedFormats[key], null, 2);
+            results.push(report + `\n\n[Stored format template for report ${key}]:\n${fmt}`);
           } else {
             results.push(report);
           }
