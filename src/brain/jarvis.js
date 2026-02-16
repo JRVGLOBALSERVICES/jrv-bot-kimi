@@ -60,7 +60,7 @@ class JarvisBrain {
     // --- 1. Identify user ---
     const existingCustomer = syncEngine.lookupCustomer(phone);
     const customerHistory = existingCustomer
-      ? await agreementsService.getCustomerHistory(phone).catch(() => null)
+      ? await agreementsService.getCustomerHistory(phone).catch(err => { console.warn('[JARVIS] Customer history lookup failed:', err.message); return null; })
       : null;
 
     // Track conversation
@@ -109,7 +109,7 @@ class JarvisBrain {
           response.text = flowResult;
           this.conversation.addMessage(phone, 'assistant', response.text);
           if (!isAdmin) {
-            notifications.onJarvisResponse(phone, name, body, response.text, classification).catch(() => {});
+            notifications.onJarvisResponse(phone, name, body, response.text, classification).catch(err => console.warn('[JARVIS] Booking flow notification failed:', err.message));
           }
           return response;
         }
@@ -146,7 +146,7 @@ class JarvisBrain {
     }
 
     // --- 6. Log message to Supabase for dashboard ---
-    this._logMessage(phone, name, body || `[${type}]`, response.text, classification, isAdmin).catch(() => {});
+    this._logMessage(phone, name, body || `[${type}]`, response.text, classification, isAdmin).catch(err => console.warn('[JARVIS] Message log to Supabase failed:', err.message));
 
     return response;
   }
@@ -177,7 +177,7 @@ class JarvisBrain {
 
     // --- Voice note request (admin only, needs special handling) ---
     if (isAdmin && /send\s*(me\s*)?(a\s*)?voice|voice\s*note|voice\s*msg|speak\s*to\s*me|can\s*you\s*speak|talk\s*to\s*me/i.test(body) && !/transcri/i.test(body)) {
-      const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(() => false);
+      const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(err => { console.warn('[JARVIS] TTS status check failed:', err.message); return false; });
       if (!ttsOk) {
         response.text = '*Voice not available.*\n```\nTTS engine not installed.\nInstall with: pip install edge-tts\nThen restart the bot.\n```';
         return;
@@ -237,6 +237,17 @@ class JarvisBrain {
         } catch (err) {
           response.text = `*Report Error:*\n\`\`\`${err.message}\`\`\``;
         }
+        return;
+      }
+    }
+
+    // --- Admin data shortcuts: structured queries bypass AI ---
+    // Common admin questions that have a direct answer from the database.
+    // These go straight to data → formatted output. No AI, no hallucination.
+    if (isAdmin) {
+      const dataResult = await this._matchAdminDataQuery(body);
+      if (dataResult) {
+        response.text = dataResult;
         return;
       }
     }
@@ -328,7 +339,7 @@ class JarvisBrain {
       case INTENTS.PAYMENT:
         if (/dah bayar|sudah bayar|已付款|paid|transferred|bank.?in/i.test(body)) {
           response.text = '*Payment Noted*\n```Thank you! Your payment will be verified by our team shortly.```\n\nPlease send proof of payment (screenshot/receipt) if you haven\'t already.';
-          notifications.onPaymentProof(phone, msg.name, null).catch(() => {});
+          notifications.onPaymentProof(phone, msg.name, null).catch(err => console.warn('[JARVIS] Payment proof notification failed:', err.message));
           return true;
         }
         response.text = customerFlows.paymentInstructions(null, lang);
@@ -444,7 +455,7 @@ class JarvisBrain {
 
     const textMsg = { ...msg, body: transcription.text, type: 'chat' };
     const customerHistory = existingCustomer
-      ? await agreementsService.getCustomerHistory(phone).catch(() => null)
+      ? await agreementsService.getCustomerHistory(phone).catch(err => { console.warn('[JARVIS] Voice handler customer history lookup failed:', err.message); return null; })
       : null;
     const classification = intentReader.classify(transcription.text, 'chat', isAdmin);
 
@@ -505,7 +516,7 @@ class JarvisBrain {
 
     if (isPayment) {
       response.text += `\n\n*Payment proof noted!* Our team will verify shortly.`;
-      notifications.onPaymentProof(phone, msg.name, null).catch(() => {});
+      notifications.onPaymentProof(phone, msg.name, null).catch(err => console.warn('[JARVIS] Image payment proof notification failed:', err.message));
     }
 
     if (analysis.text) {
@@ -551,7 +562,7 @@ class JarvisBrain {
     } else {
       notifications.notifySuperadmin(
         `*${typeLabel} received from ${msg.name} (+${phone})*\n\`\`\`Please review.\`\`\``
-      ).catch(() => {});
+      ).catch(err => console.warn('[JARVIS] Document superadmin notification failed:', err.message));
     }
   }
 
@@ -600,7 +611,7 @@ class JarvisBrain {
     // Forward: try sending actual media buffer, then fall back to text + URL
     notifications.forwardMedia(phone, name, media, mediaType, caption, cloudUrl).catch(err => {
       console.warn('[JARVIS] Media forward via notification failed:', err.message);
-      notifications.notifySuperadmin(notifyText).catch(() => {});
+      notifications.notifySuperadmin(notifyText).catch(err2 => console.warn('[JARVIS] Media forward fallback notification failed:', err2.message));
     });
   }
 
@@ -627,6 +638,64 @@ class JarvisBrain {
     // Just "report" or "reports" with nothing else complex
     if (/^(get|show|give|pull|send)?\s*(me\s*)?(the\s*)?(daily\s*)?reports?\s*(please|pls|now)?\.?$/i.test(lower)) {
       return 'all';
+    }
+
+    return null;
+  }
+
+  // --- Admin data query shortcuts ---
+  // Common admin questions that map directly to database queries.
+  // No AI needed. Returns formatted text or null (falls through to AI).
+
+  async _matchAdminDataQuery(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase().trim();
+
+    try {
+      // Expiring / due / returning soon
+      if (/expir|due today|return.*today|who.*return|coming back|ending today/i.test(lower)) {
+        const expiring = await agreementsService.getExpiringAgreements(1);
+        if (expiring.length === 0) return '*No rentals expiring today.* ✅';
+        let r = `*⚠️ Expiring Today: ${expiring.length} vehicle(s)*\n\n`;
+        for (const a of expiring) {
+          const phone = a.mobile || 'N/A';
+          r += `• ${a.car_type || 'N/A'} (${a.plate_number}) — ${a.customer_name || 'N/A'}\n  📱 ${phone}\n`;
+        }
+        return r;
+      }
+
+      // Overdue
+      if (/overdue|late return|past due|haven.*return/i.test(lower)) {
+        const overdue = await agreementsService.getOverdueAgreements();
+        if (overdue.length === 0) return '*No overdue returns.* ✅';
+        let r = `*🚨 Overdue Returns: ${overdue.length}*\n\n`;
+        for (const a of overdue) {
+          r += `• ${a.car_type || 'N/A'} (${a.plate_number}) — ${a.customer_name || 'N/A'}\n  📱 ${a.mobile || 'N/A'}\n`;
+        }
+        return r;
+      }
+
+      // Available cars
+      if (/available|free car|what car.*have|any car|car.*ready|car.*rent/i.test(lower) && !/customer|who|book/i.test(lower)) {
+        return await reports.availableReport();
+      }
+
+      // Follow up / pending
+      if (/follow.?up|need.*contact|pending|who.*call/i.test(lower)) {
+        return await reports.followUpReport();
+      }
+
+      // Active bookings / how many rented
+      if (/active book|how many.*rent|current.*book|total.*rent/i.test(lower)) {
+        const agreements = await agreementsService.getActiveAgreements();
+        const cars = await fleetService.getAllCars();
+        const active = cars.filter(c => c.status !== 'inactive');
+        return `*📊 Current Status*\n\nActive Bookings: ${agreements.length}\nFleet Size: ${active.length}\nAvailable: ${active.length - agreements.length}\nUtilization: ${active.length > 0 ? ((agreements.length / active.length) * 100).toFixed(0) : 0}%`;
+      }
+
+    } catch (err) {
+      console.error('[JARVIS] Data query shortcut failed:', err.message);
+      return null; // Fall through to AI
     }
 
     return null;
@@ -1066,6 +1135,7 @@ class JarvisBrain {
       }, { onConflict: 'key' });
     } catch (err) {
       // Non-critical — don't crash for logging failure
+      console.warn('[JARVIS] Message log write failed:', err.message);
     }
   }
 }
