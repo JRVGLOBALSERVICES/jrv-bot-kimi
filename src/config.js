@@ -85,6 +85,14 @@ const config = {
     enabled: !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY),
   },
 
+  // Web Search (gives JARVIS internet access)
+  // Tavily: https://tavily.com — 1000 free/month, best for AI agents
+  // Brave: https://brave.com/search/api — 2000 free/month
+  search: {
+    tavilyKey: process.env.TAVILY_API_KEY || null,
+    braveKey: process.env.BRAVE_API_KEY || null,
+  },
+
   // Paths
   paths: {
     cache: './cache',
