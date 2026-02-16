@@ -115,11 +115,13 @@ const INTENT_PATTERNS = {
   },
   [INTENTS.BOOKING_INQUIRY]: {
     patterns: [
-      /book|tempah|nak sewa|rent|rental|want.*car|租车|租用/i,
-      /available|ada kereta|ada tak|有没有车/i,
-      /sewa\s*kereta/i,
-      /nak kereta|need.*car/i,
-      /reservation|booking/i,
+      /^(book|tempah|nak sewa|rent)\b/i,                         // Must start with booking word
+      /\b(i\s+want\s+to\s+(book|rent|sewa)|want.*rent.*car)/i,   // Explicit "I want to book/rent"
+      /\b(ada kereta|ada tak|kereta.*available|car.*available)\b/i, // "any car available?" (not just "available")
+      /\bsewa\s*kereta/i,
+      /\b(nak kereta|need\s+a?\s*car)\b/i,
+      /^(reservation|booking)\b/i,                                 // Must start with it
+      /租车|租用|有没有车/i,
     ],
     priority: PRIORITY.MEDIUM,
   },

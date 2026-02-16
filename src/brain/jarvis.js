@@ -230,9 +230,15 @@ class JarvisBrain {
     }
 
     // --- Booking start detection ---
-    if (/^(book|tempah|nak sewa|i want to (book|rent))/i.test(body) && !bookingFlow.isActive(phone)) {
-      response.text = await bookingFlow.start(phone, name || existingCustomer?.customer_name, isAdmin);
-      return;
+    // Admin/boss: only start booking with explicit "/book" command, not casual mentions
+    // Customers: start on direct booking phrases at start of message
+    if (!bookingFlow.isActive(phone)) {
+      const isExplicitBookCmd = /^\/(book|tempah|sewa)/i.test(body);
+      const isCustomerBookIntent = !isAdmin && /^(book|tempah|nak sewa|i want to (book|rent))/i.test(body);
+      if (isExplicitBookCmd || isCustomerBookIntent) {
+        response.text = await bookingFlow.start(phone, name || existingCustomer?.customer_name, isAdmin);
+        return;
+      }
     }
 
     // --- Intent-based quick responses ---
@@ -300,15 +306,22 @@ class JarvisBrain {
         return true;
 
       case INTENTS.BOOKING_INQUIRY: {
-        // Start booking flow instead of just showing cars
+        // Admin: don't auto-start booking from casual mentions — let AI respond naturally
+        // Admin can use /book to explicitly start booking
+        if (isAdmin) {
+          // Just show available cars as info, don't enter booking flow
+          const cache = syncEngine.getCache();
+          const validatedCars = cache.validatedCars || cache.cars;
+          response.text = customerFlows.formatAvailableCarsForAdmin(validatedCars);
+          return true;
+        }
+        // Customers: start booking flow
         if (!bookingFlow.isActive(phone)) {
           response.text = await bookingFlow.start(phone, msg.name || existingCustomer?.customer_name, isAdmin);
         } else {
           const cache = syncEngine.getCache();
           const validatedCars = cache.validatedCars || cache.cars;
-          response.text = isAdmin
-            ? customerFlows.formatAvailableCarsForAdmin(validatedCars)
-            : customerFlows.formatAvailableCarsForCustomer(validatedCars, lang);
+          response.text = customerFlows.formatAvailableCarsForCustomer(validatedCars, lang);
         }
         return true;
       }
