@@ -164,6 +164,31 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_system_stats',
+      description: 'Get bot system info: current AI model, provider, API stats, uptime, performance. Use when asked about model, engine, speed, stats, or system.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_reports',
+      description: 'Generate daily business reports. Can generate one or multiple reports at once. Report types: 1=Sorted by Time, 2=Contact List, 3=Today Timeslots, 4=Follow-up Required, 5=Available Cars, 6=Daily Summary, fleet=Fleet Status, earnings=Revenue. Use "all" or "1,2,3,4,5,6" to get all daily reports.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reports: {
+            type: 'string',
+            description: 'Comma-separated report numbers or names. Examples: "all", "1,2,3,4,5,6", "6", "fleet,earnings", "4,5"',
+          },
+        },
+        required: ['reports'],
+      },
+    },
+  },
 ];
 
 // ─── Tool Executor ───────────────────────────────────────
@@ -330,6 +355,59 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         ],
         mapsLink: locationService.jrvLocation(),
         website: 'https://jrvservices.co',
+      };
+    }
+
+    case 'get_reports': {
+      if (!isAdmin) return { error: 'Reports are only available to admin users.' };
+      const reports = require('../brain/reports');
+      const requested = (args.reports || 'all').toLowerCase();
+      const reportMap = {
+        '1': () => reports.sortedByTime(),
+        '2': () => reports.sortedByContact(),
+        '3': () => reports.sortedByTimeslot(),
+        '4': () => reports.followUpReport(),
+        '5': () => reports.availableReport(),
+        '6': () => reports.summaryReport(),
+        'fleet': () => reports.fleetReport(),
+        'earnings': () => reports.earningsReport(),
+      };
+
+      let keys;
+      if (requested === 'all' || requested === 'daily') {
+        keys = ['1', '2', '3', '4', '5', '6'];
+      } else {
+        keys = requested.split(/[,\s]+/).map(k => k.trim()).filter(Boolean);
+      }
+
+      const results = [];
+      for (const key of keys) {
+        const gen = reportMap[key];
+        if (gen) {
+          results.push(await gen());
+        } else {
+          results.push(`Unknown report: ${key}`);
+        }
+      }
+      return results.join('\n\n---\n\n');
+    }
+
+    case 'get_system_stats': {
+      const aiRouter = require('./router');
+      const cfg = require('../config');
+      const stats = aiRouter.getStats();
+      const os = require('os');
+      return {
+        cloudProvider: cfg.cloudProvider,
+        activeModel: cfg.cloudProvider === 'groq' ? cfg.groq.model : cfg.kimi.model,
+        kimi: { model: cfg.kimi.model, available: !!cfg.kimi.apiKey, calls: stats.kimiStats?.calls || 0, tokens: stats.kimiStats?.tokens || 0 },
+        groq: { model: cfg.groq.model, available: !!cfg.groq.apiKey, calls: stats.groqStats?.calls || 0, tokens: stats.groqStats?.tokens || 0 },
+        ollama: { model: cfg.localAI.model, available: aiRouter.localAvailable },
+        totalToolCalls: stats.toolCalls,
+        cacheHits: stats.cacheHits,
+        uptime: `${Math.round(os.uptime() / 3600)}h`,
+        memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+        switchCmd: '/switch <kimi|groq> [model]',
       };
     }
 
