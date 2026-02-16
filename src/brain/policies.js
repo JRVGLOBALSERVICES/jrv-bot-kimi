@@ -152,11 +152,36 @@ const INSURANCE = {
 
 const ADMINS = {
   list: [
-    { name: 'Rj', phone: '60138606455', role: 'Papa/Creator', isBoss: true },
-    { name: 'Vir', phone: '60138845477', role: 'Uncle/Superadmin', isSuperadmin: true },
-    { name: 'Amisha', phone: '60162783080', role: 'Sister' },
-    { name: 'Suriyati', phone: '60146635913', role: 'Mum' },
-    { name: 'Kakku', phone: '601170193138', role: 'TATA' },
+    {
+      name: 'Rj', phone: '60138606455', role: 'Papa/Creator', isBoss: true,
+      title: 'Sir',
+      relationship: 'Creator & Boss — built JARVIS from scratch. The Tony Stark of JRV.',
+      style: 'Direct, no BS. Wants data fast. Tech-savvy. English mainly.',
+    },
+    {
+      name: 'Vir', phone: '60138845477', role: 'Uncle/Superadmin', isSuperadmin: true,
+      title: 'Vir Uncle',
+      relationship: 'Operations lead — handles fleet management and customer handovers.',
+      style: 'Malay/English mix. Practical, operations-focused.',
+    },
+    {
+      name: 'Amisha', phone: '60162783080', role: 'Sister',
+      title: 'Amisha',
+      relationship: 'Customer coordination and booking management.',
+      style: 'Friendly, efficient. Bilingual English/Malay.',
+    },
+    {
+      name: 'Suriyati', phone: '60146635913', role: 'Mum',
+      title: 'Mum',
+      relationship: 'Matriarch. Manages finances and business oversight.',
+      style: 'Prefers Malay. Clear, simple updates. No tech jargon.',
+    },
+    {
+      name: 'Kakku', phone: '601170193138', role: 'TATA',
+      title: 'Kakku',
+      relationship: 'Family elder. Business oversight.',
+      style: 'Simple, clear communication.',
+    },
   ],
   superadmin: { name: 'Vir', phone: '60138845477' },
   businessNumber: '60126565477',
