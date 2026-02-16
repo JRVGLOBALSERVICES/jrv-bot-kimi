@@ -204,6 +204,39 @@ const TOOLS = [
     },
   },
 
+  // ─── Web Search & URL Fetch (internet access) ──────
+
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: 'Search the internet for current information. Use when asked about something outside JRV business data — news, weather, general knowledge, prices, competitors, regulations, etc. Also useful for admin research tasks.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query. Be specific for better results.' },
+          max_results: { type: 'number', description: 'Max results to return (1-10). Default: 5' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fetch_url',
+      description: 'Fetch and read the text content of a URL/webpage. Use when you need to read a specific page — articles, documentation, pricing pages, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The full URL to fetch (must start with http:// or https://)' },
+          max_length: { type: 'number', description: 'Max characters to return. Default: 5000' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+
   // ─── Data Store Query Tool (admin can read actual DB data) ──────
 
   {
@@ -627,8 +660,30 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         uptime: `${Math.round(os.uptime() / 3600)}h`,
         heapMemory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         jarvisMemory: stats.memoryStats || { memories: 0, rules: 0 },
+        webSearch: require('../utils/web-search').getStats(),
         switchCmd: '/switch <kimi|groq> [model]',
       };
+    }
+
+    // ─── Web Search & URL Fetch ────────────────────────────
+
+    case 'web_search': {
+      const webSearch = require('../utils/web-search');
+      const results = await webSearch.search(args.query, {
+        maxResults: args.max_results || 5,
+      });
+      return results;
+    }
+
+    case 'fetch_url': {
+      if (!args.url || !/^https?:\/\//i.test(args.url)) {
+        return { error: 'Invalid URL. Must start with http:// or https://' };
+      }
+      const webSearch = require('../utils/web-search');
+      const result = await webSearch.fetchUrl(args.url, {
+        maxLength: args.max_length || 5000,
+      });
+      return result;
     }
 
     // ─── Data Store Query ────────────────────────────────────
