@@ -167,6 +167,20 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'lookup_team_member',
+      description: 'Look up a JRV team member/admin by name or phone. Also use this when someone asks "who am I?" to look them up. Returns their role, relationship, and contact.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Name or phone number to search. Use "all" to list all team members. Use "me" or the caller\'s name to identify the current speaker.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_system_stats',
       description: 'Get bot system info: current AI model, provider, API stats, uptime, performance. Use when asked about model, engine, speed, stats, or system.',
       parameters: { type: 'object', properties: {} },
@@ -356,6 +370,46 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         mapsLink: locationService.jrvLocation(),
         website: 'https://jrvservices.co',
       };
+    }
+
+    case 'lookup_team_member': {
+      if (!isAdmin) return { error: 'Team info is only available to admin users.' };
+      const query = (args.query || '').toLowerCase();
+      const admins = policies.admins.list;
+
+      if (query === 'all' || query === 'team') {
+        return admins.map(a => ({
+          name: a.name,
+          role: a.role,
+          title: a.title,
+          phone: a.phone,
+          relationship: a.relationship,
+          isBoss: a.isBoss || false,
+          isSuperadmin: a.isSuperadmin || false,
+        }));
+      }
+
+      const match = admins.find(a =>
+        a.name.toLowerCase().includes(query) ||
+        a.phone.includes(query.replace(/\D/g, '')) ||
+        (a.title && a.title.toLowerCase().includes(query)) ||
+        (a.role && a.role.toLowerCase().includes(query))
+      );
+
+      if (match) {
+        return {
+          name: match.name,
+          role: match.role,
+          title: match.title,
+          phone: match.phone,
+          relationship: match.relationship,
+          style: match.style,
+          isBoss: match.isBoss || false,
+          isSuperadmin: match.isSuperadmin || false,
+        };
+      }
+
+      return { found: false, message: `No team member matching "${args.query}"`, team: admins.map(a => a.name) };
     }
 
     case 'get_reports': {

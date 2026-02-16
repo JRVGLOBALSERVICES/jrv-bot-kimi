@@ -851,28 +851,37 @@ class JarvisBrain {
   _buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification) {
     const parts = [];
 
-    // Core identity — keep short so Kimi doesn't get overwhelmed
-    parts.push('IMPORTANT RULES:');
-    parts.push('1. Answer EXACTLY what the user asked. Do NOT add unrelated info.');
-    parts.push('2. If user asks about "model" or "AI", they mean the AI model (Kimi K2.5), NOT a car model.');
-    parts.push('3. Use tools for live data. Never guess or make up numbers.');
+    parts.push('CONTEXT FOR THIS MESSAGE:');
+    parts.push('Answer EXACTLY what was asked. Use tools for live data. Never guess numbers.');
     parts.push('');
 
     if (isAdmin) {
       const admin = policies.getAdmin(phone);
-      parts.push(`USER: ADMIN${admin ? ` — ${admin.name} (${admin.role})` : ''}. Full data access.`);
+      if (admin) {
+        parts.push(`SPEAKING TO: ${admin.name} — ${admin.role}`);
+        parts.push(`Address as: "${admin.title}"`);
+        parts.push(`Style: ${admin.style}`);
+        if (admin.isBoss) {
+          parts.push('This is your CREATOR. Be at your sharpest. He built you and knows how you work.');
+        }
+      } else {
+        parts.push('SPEAKING TO: Unknown admin. Full data access.');
+      }
     } else {
-      parts.push('USER: CUSTOMER.');
+      parts.push('SPEAKING TO: CUSTOMER');
       parts.push('NEVER share: car plates, admin phones, other customer data.');
       parts.push('Only share business WhatsApp: +60126565477.');
 
       if (existingCustomer) {
-        parts.push(`RETURNING: ${existingCustomer.customer_name}`);
+        parts.push(`RETURNING CUSTOMER: ${existingCustomer.customer_name}`);
         if (customerHistory) {
-          parts.push(`Rentals: ${customerHistory.totalRentals} | Spent: RM${customerHistory.totalSpent.toFixed(2)}`);
+          parts.push(`History: ${customerHistory.totalRentals} rentals | RM${customerHistory.totalSpent.toFixed(2)} spent`);
           if (customerHistory.activeRentals.length > 0) {
             const active = customerHistory.activeRentals[0];
-            parts.push(`ACTIVE: ${active.car_type || 'N/A'} until ${(active.date_end || '').slice(0, 10)}`);
+            parts.push(`ACTIVE RENTAL: ${active.car_type || 'N/A'} until ${(active.date_end || '').slice(0, 10)}`);
+          }
+          if (customerHistory.totalRentals >= 5) {
+            parts.push('VIP: Regular customer. Be extra helpful.');
           }
         }
       } else {
@@ -881,7 +890,7 @@ class JarvisBrain {
     }
 
     if (name) parts.push(`WhatsApp name: "${name}"`);
-    if (classification) parts.push(`Intent: ${classification.intent} [${classification.priority}]`);
+    if (classification) parts.push(`Detected intent: ${classification.intent}`);
 
     // Compact live data summary
     const cache = syncEngine.getCache();
@@ -889,19 +898,15 @@ class JarvisBrain {
       const validated = cache.validatedCars || cache.cars;
       const avail = validated.filter(c => (c._validatedStatus || c.status) === 'available');
       parts.push('');
-      parts.push(`Fleet: ${validated.length} cars, ${avail.length} available, ${cache.agreements.length} active bookings`);
+      parts.push(`Live fleet: ${validated.length} cars, ${avail.length} available, ${cache.agreements.length} active bookings`);
 
       if (!isAdmin && avail.length > 0) {
-        parts.push(`Available (NO PLATES):`);
+        parts.push('Available cars (NO PLATES for customer):');
         for (const car of avail) {
           parts.push(`  ${car._carName || car.body_type || ''} ${colorName(car.color)} RM${car.daily_price}/day`);
         }
       }
     }
-
-    // Add policy context at the end (less important for Kimi to prioritize)
-    parts.push('');
-    parts.push(policies.buildPolicyContext(isAdmin));
 
     return parts.join('\n');
   }
