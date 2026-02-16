@@ -48,6 +48,9 @@ class SyncEngine {
         dataStoreService.getAdminConfig(),
       ]);
 
+      // Reload JARVIS memory & rules (non-blocking)
+      try { require('../../brain/memory').load(); } catch (e) { /* non-critical */ }
+
       // Cross-validate car status with agreements
       const { validated, mismatches } = validateFleetStatus(cars, agreements);
 

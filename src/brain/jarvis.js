@@ -795,6 +795,15 @@ class JarvisBrain {
         }
 
         if (command.isBoss) {
+          response.text += `\n*Boss Memory & Rules:*\n\`\`\`\n` +
+            `"Remember: <fact>"   Save to memory\n` +
+            `"What do you remember?" List memories\n` +
+            `"Forget memory <id>"  Delete memory\n` +
+            `"New rule: <rule>"    Add rule\n` +
+            `"Show rules"          List rules\n` +
+            `"Delete rule <id>"    Remove rule\n` +
+            `\`\`\`\n`;
+
           response.text += `\n*Boss Power Tools:*\n\`\`\`\n` +
             `/tool help         All tools\n` +
             `/tool pc           PC performance\n` +
