@@ -203,6 +203,128 @@ const TOOLS = [
       },
     },
   },
+
+  // ─── Memory & Rules Tools (boss can teach JARVIS via chat) ──────
+
+  {
+    type: 'function',
+    function: {
+      name: 'save_memory',
+      description: 'Save something to JARVIS memory. Use when boss says "remember this", "note that", "keep in mind", or tells you a fact/preference/instruction to remember. Memory persists across conversations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'What to remember. Be precise and clear.' },
+          type: { type: 'string', description: 'Memory type: fact (business facts), pref (preferences), note (contextual notes), skill (how-to instructions). Default: fact' },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Tags for easy searching. E.g., ["pricing", "airport"] or ["customer", "ali"]',
+          },
+        },
+        required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall_memory',
+      description: 'Search JARVIS memory for something specific. Use when boss asks "do you remember...", "what did I tell you about...", or when you need to recall stored information.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query — matches against content, tags, and type' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_memories',
+      description: 'List all stored memories or filter by type. Use when boss asks "what do you remember?" or "show memories".',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: 'Filter by type: fact, pref, note, skill. Leave empty for all.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_memory',
+      description: 'Delete/forget a memory by ID. Use when boss says "forget that", "delete memory", "remove that note".',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Memory ID to delete' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_rule',
+      description: 'Add a new dynamic rule for JARVIS to follow. Use when boss says "new rule:", "from now on:", "always do X", "never do Y". Rules persist and are followed in all future conversations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'The rule text. Be specific and actionable.' },
+          type: { type: 'string', description: 'Rule type: always (always do), never (never do), when (conditional), override (replaces hardcoded policy). Default: always' },
+          priority: { type: 'string', description: 'Priority: high (critical rules) or normal. Default: normal' },
+        },
+        required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_rule',
+      description: 'Update an existing rule by ID. Use when boss wants to change a rule.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Rule ID to update' },
+          content: { type: 'string', description: 'New rule text' },
+        },
+        required: ['id', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_rules',
+      description: 'List all active dynamic rules. Use when boss asks "what are the rules?", "show rules", "what rules do you follow?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: 'Filter by type: always, never, when, override. Leave empty for all.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_rule',
+      description: 'Delete a rule by ID. Use when boss says "remove rule", "delete rule #X".',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Rule ID to delete' },
+        },
+        required: ['id'],
+      },
+    },
+  },
 ];
 
 // ─── Tool Executor ───────────────────────────────────────
@@ -460,9 +582,81 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         totalToolCalls: stats.toolCalls,
         cacheHits: stats.cacheHits,
         uptime: `${Math.round(os.uptime() / 3600)}h`,
-        memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+        heapMemory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+        jarvisMemory: stats.memoryStats || { memories: 0, rules: 0 },
         switchCmd: '/switch <kimi|groq> [model]',
       };
+    }
+
+    // ─── Memory & Rules Tools ──────────────────────────────
+
+    case 'save_memory': {
+      if (!isAdmin) return { error: 'Only admin/boss can save memories.' };
+      const memory = require('../brain/memory');
+      const result = await memory.saveMemory(
+        args.content,
+        args.type || 'fact',
+        args.tags || [],
+        'boss'
+      );
+      return { saved: true, id: result.id, content: result.content, type: result.type };
+    }
+
+    case 'recall_memory': {
+      if (!isAdmin) return { error: 'Only admin can access memories.' };
+      const memory = require('../brain/memory');
+      const results = memory.searchMemories(args.query);
+      if (results.length === 0) return { found: false, message: `No memories matching "${args.query}"` };
+      return results.map(m => ({ id: m.id, content: m.content, type: m.type, tags: m.tags }));
+    }
+
+    case 'list_memories': {
+      if (!isAdmin) return { error: 'Only admin can access memories.' };
+      const memory = require('../brain/memory');
+      const list = memory.listMemories(args.type || null);
+      if (list.length === 0) return { count: 0, message: 'No memories stored yet.' };
+      return { count: list.length, memories: list.map(m => ({ id: m.id, content: m.content, type: m.type, tags: m.tags })) };
+    }
+
+    case 'delete_memory': {
+      if (!isAdmin) return { error: 'Only admin/boss can delete memories.' };
+      const memory = require('../brain/memory');
+      const deleted = await memory.deleteMemory(args.id);
+      return deleted ? { deleted: true, id: args.id } : { deleted: false, message: `Memory "${args.id}" not found` };
+    }
+
+    case 'add_rule': {
+      if (!isAdmin) return { error: 'Only admin/boss can add rules.' };
+      const memory = require('../brain/memory');
+      const rule = await memory.addRule(
+        args.content,
+        args.type || 'always',
+        args.priority || 'normal',
+        'boss'
+      );
+      return { added: true, id: rule.id, content: rule.content, type: rule.type, priority: rule.priority };
+    }
+
+    case 'update_rule': {
+      if (!isAdmin) return { error: 'Only admin/boss can update rules.' };
+      const memory = require('../brain/memory');
+      const updated = await memory.updateRule(args.id, args.content);
+      return updated ? { updated: true, id: args.id, content: updated.content } : { updated: false, message: `Rule "${args.id}" not found` };
+    }
+
+    case 'list_rules': {
+      if (!isAdmin) return { error: 'Only admin can access rules.' };
+      const memory = require('../brain/memory');
+      const rules = memory.listRules(args.type || null);
+      if (rules.length === 0) return { count: 0, message: 'No dynamic rules set yet.' };
+      return { count: rules.length, rules: rules.map(r => ({ id: r.id, content: r.content, type: r.type, priority: r.priority })) };
+    }
+
+    case 'delete_rule': {
+      if (!isAdmin) return { error: 'Only admin/boss can delete rules.' };
+      const memory = require('../brain/memory');
+      const deleted = await memory.deleteRule(args.id);
+      return deleted ? { deleted: true, id: args.id } : { deleted: false, message: `Rule "${args.id}" not found` };
     }
 
     default:

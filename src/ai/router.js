@@ -5,6 +5,7 @@ const { TOOLS, executeTool } = require('./kimi-tools');
 const syncEngine = require('../supabase/services/sync');
 const policies = require('../brain/policies');
 const responseCache = require('../utils/cache');
+const jarvisMemory = require('../brain/memory');
 
 /**
  * AI Router - Routes text messages to the best AI engine.
@@ -45,6 +46,7 @@ class AIRouter {
       localClient.isAvailable(),
       kimiClient.isAvailable(),
       groqClient.isAvailable(),
+      jarvisMemory.load(),
     ]);
 
     this.localAvailable = localOk;
@@ -52,7 +54,9 @@ class AIRouter {
     this.groqAvailable = groqOk;
 
     const cfg = require('../config');
+    const memStats = jarvisMemory.getStats();
     console.log(`[AI Router] Kimi: ${kimiOk ? 'OK' : 'OFFLINE'} | Groq: ${groqOk ? 'OK' : 'OFFLINE'} | Ollama: ${localOk ? 'OK' : 'OFFLINE'} | Provider: ${cfg.cloudProvider}`);
+    console.log(`[AI Router] Memory: ${memStats.memories} memories, ${memStats.rules} rules`);
 
     if (!kimiOk && !groqOk) {
       console.warn('[AI Router] No cloud AI available. Set KIMI_API_KEY or GROQ_API_KEY in .env');
@@ -248,6 +252,24 @@ class AIRouter {
     }
 
     parts.push('', policyContext, '', context);
+
+    // Inject dynamic memory & rules (boss-added via chat)
+    const memoryContext = jarvisMemory.buildMemoryContext();
+    if (memoryContext) parts.push('', memoryContext);
+
+    if (isAdmin) {
+      parts.push(
+        '',
+        'MEMORY COMMANDS:',
+        'When boss tells you to remember something, use save_memory tool.',
+        'When boss asks "what do you remember?" use list_memories tool.',
+        'When boss says "forget X" or "delete memory", use delete_memory tool.',
+        'When boss says "new rule:" or "from now on:", use add_rule tool.',
+        'When boss asks about rules, use list_rules tool.',
+        'Confirm after saving/deleting. Show the ID so boss can reference it later.',
+      );
+    }
+
     if (customPrompt) parts.push('', customPrompt);
     return parts.join('\n');
   }
@@ -260,6 +282,7 @@ class AIRouter {
       kimiStats: kimiClient.getStats(),
       groqStats: groqClient.getStats(),
       cacheStats: responseCache.getStats(),
+      memoryStats: jarvisMemory.getStats(),
     };
   }
 }
