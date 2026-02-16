@@ -209,6 +209,38 @@ class JarvisBrain {
       }
     }
 
+    // --- Admin report shortcut: natural language → direct reports ---
+    // "get me reports", "show reports", "daily report", "report for today"
+    // These bypass the AI entirely — reports.js output is already formatted.
+    // Sending through AI causes it to rewrite/summarize the formatted output.
+    if (isAdmin) {
+      const reportMatch = this._matchNaturalReport(body);
+      if (reportMatch) {
+        try {
+          if (reportMatch === 'all') {
+            const allReports = await Promise.all([
+              reports.sortedByTime(),
+              reports.sortedByContact(),
+              reports.sortedByTimeslot(),
+              reports.followUpReport(),
+              reports.availableReport(),
+              reports.summaryReport(),
+            ]);
+            response.text = allReports.join('\n\n───────────────\n\n');
+          } else if (reportMatch === 'fleet') {
+            response.text = await reports.fleetReport();
+          } else if (reportMatch === 'earnings') {
+            response.text = await reports.earningsReport();
+          } else {
+            response.text = await reports.dailySummary();
+          }
+        } catch (err) {
+          response.text = `*Report Error:*\n\`\`\`${err.message}\`\`\``;
+        }
+        return;
+      }
+    }
+
     // --- Admin/Boss: AI-first with tools (agent mode) ---
     // Admin messages always go to AI with full tool access.
     // The AI reads the question, decides if it needs data, calls tools, then answers.
@@ -570,6 +602,34 @@ class JarvisBrain {
       console.warn('[JARVIS] Media forward via notification failed:', err.message);
       notifications.notifySuperadmin(notifyText).catch(() => {});
     });
+  }
+
+  // --- Natural language report detection ---
+  // Catches "get me reports", "show reports for today", "daily report", etc.
+  // Returns: 'all' | 'fleet' | 'earnings' | 'summary' | null
+
+  _matchNaturalReport(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase().trim();
+
+    // Must mention "report" somewhere
+    if (!/report/.test(lower)) return null;
+
+    // Specific report types
+    if (/fleet\s*report/i.test(lower)) return 'fleet';
+    if (/earning|revenue/i.test(lower)) return 'earnings';
+
+    // "all reports", "all 6 reports", "report 1-6", "reports for today", "daily reports"
+    if (/all\s*(6\s*)?report|report\s*1\s*[-–]\s*6|daily\s*report|report.*today|today.*report|get\s*(me\s*)?report|show\s*(me\s*)?report|generate\s*report|pull\s*report|send\s*(me\s*)?report/i.test(lower)) {
+      return 'all';
+    }
+
+    // Just "report" or "reports" with nothing else complex
+    if (/^(get|show|give|pull|send)?\s*(me\s*)?(the\s*)?(daily\s*)?reports?\s*(please|pls|now)?\.?$/i.test(lower)) {
+      return 'all';
+    }
+
+    return null;
   }
 
   // --- Commands ---

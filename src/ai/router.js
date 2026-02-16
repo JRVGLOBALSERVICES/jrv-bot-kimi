@@ -269,7 +269,7 @@ class AIRouter {
       '- NEVER FABRICATE DATA. No data → say "no data found."',
       '- NEVER SIMULATE. Can\'t call/email/generate images without tools.',
       '- NEVER INVENT TOOL RESULTS. No fake IDs or confirmations.',
-      '- Reports from get_reports → send VERBATIM.',
+      '- Reports from get_reports tool → send the EXACT text returned. Do NOT rewrite, summarize, add headers, or change the format. Copy-paste the tool output directly as your response.',
     );
 
     if (isAdmin) {
