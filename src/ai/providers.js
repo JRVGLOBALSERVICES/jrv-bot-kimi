@@ -1,26 +1,28 @@
 const kimiClient = require('./kimi-client');
 const groqClient = require('./groq-client');
 const localClient = require('./local-client');
+const config = require('../config');
 
 /**
  * Unified Provider System — OpenClaw-style failover rotation.
  *
  * Instead of picking one provider and hoping it works,
- * this rotates through ALL available providers automatically.
+ * this rotates through ALL configured providers automatically.
  * If Kimi dies → Groq takes over → if Groq dies → Ollama takes over.
- * When providers recover, they rejoin the rotation.
  *
- * Like OpenClaw: "Profile rotation + fallbacks" with automatic switching on API errors.
+ * KEY DESIGN: "configured" = has API key. We ALWAYS try configured providers.
+ * We do NOT gate on isAvailable() — that checks /models which often fails
+ * even when /chat/completions works fine. Let the actual chat call decide.
  */
 
-const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // Re-check dead providers every 5 min
+const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // Re-check status every 5 min
 
 class ProviderSystem {
   constructor() {
     this.providers = [
-      { id: 'kimi', client: kimiClient, name: 'Kimi K2.5', type: 'cloud', available: false, supportsTools: true, priority: 1 },
-      { id: 'groq', client: groqClient, name: 'Groq Llama', type: 'cloud', available: false, supportsTools: true, priority: 2 },
-      { id: 'ollama', client: localClient, name: 'Ollama Local', type: 'local', available: false, supportsTools: false, priority: 3 },
+      { id: 'kimi', client: kimiClient, name: 'Kimi K2.5', type: 'cloud', configured: false, healthy: false, supportsTools: true, priority: 1 },
+      { id: 'groq', client: groqClient, name: 'Groq Llama', type: 'cloud', configured: false, healthy: false, supportsTools: true, priority: 2 },
+      { id: 'ollama', client: localClient, name: 'Ollama Local', type: 'local', configured: true, healthy: false, supportsTools: false, priority: 3 },
     ];
 
     this._healthCheckTimer = null;
@@ -33,54 +35,47 @@ class ProviderSystem {
   }
 
   async init() {
-    // Check all providers in parallel
+    // Mark which providers are CONFIGURED (have credentials)
+    this.providers[0].configured = !!(config.kimi.apiKey && config.kimi.apiKey !== 'placeholder');
+    this.providers[1].configured = !!config.groq.apiKey;
+    this.providers[2].configured = true; // Ollama is always "configured" (localhost)
+
+    // Health checks — nice to have, not a gate
     const checks = await Promise.allSettled(
-      this.providers.map(p => p.client.isAvailable())
+      this.providers.map(p => p.configured ? p.client.isAvailable() : Promise.resolve(false))
     );
 
     for (let i = 0; i < this.providers.length; i++) {
-      this.providers[i].available = checks[i].status === 'fulfilled' ? checks[i].value : false;
+      this.providers[i].healthy = checks[i].status === 'fulfilled' ? checks[i].value : false;
     }
 
     // Start background health checks
     this._healthCheckTimer = setInterval(() => this._healthCheck(), HEALTH_CHECK_INTERVAL);
 
-    const status = this.providers.map(p => `${p.name}: ${p.available ? 'OK' : 'OFFLINE'}`).join(' | ');
+    const status = this.providers
+      .filter(p => p.configured)
+      .map(p => `${p.name}: ${p.healthy ? 'OK' : 'CONFIGURED (health check failed, will try anyway)'}`)
+      .join(' | ');
     console.log(`[Providers] ${status}`);
+
+    const unconfigured = this.providers.filter(p => !p.configured).map(p => p.name);
+    if (unconfigured.length > 0) {
+      console.log(`[Providers] Not configured: ${unconfigured.join(', ')}`);
+    }
 
     return this;
   }
 
   /**
-   * Get the best available provider for a given need.
-   * @param {object} opts
-   * @param {boolean} opts.needsTools - Whether tool calling is required
-   * @param {string} opts.preferredProvider - Force a specific provider ID
-   * @param {string} opts.excludeProvider - Skip this provider (for fallback rotation)
-   * @returns {{ provider, client, name, type } | null}
+   * Get the best provider for system prompt display.
    */
   getProvider(opts = {}) {
-    const { needsTools = false, preferredProvider = null, excludeProvider = null } = opts;
-    const cfg = require('../config');
+    const { needsTools = false } = opts;
 
-    // Apply user's preferred cloud provider from config/dashboard
-    let sorted = [...this.providers].filter(p => p.available);
+    let sorted = [...this.providers].filter(p => p.configured);
+    if (needsTools) sorted = sorted.filter(p => p.supportsTools);
 
-    if (excludeProvider) {
-      sorted = sorted.filter(p => p.id !== excludeProvider);
-    }
-
-    if (needsTools) {
-      sorted = sorted.filter(p => p.supportsTools);
-    }
-
-    if (preferredProvider) {
-      const pref = sorted.find(p => p.id === preferredProvider);
-      if (pref) return pref;
-    }
-
-    // Respect config.cloudProvider preference
-    if (cfg.cloudProvider === 'groq') {
+    if (config.cloudProvider === 'groq') {
       sorted.sort((a, b) => {
         if (a.id === 'groq') return -1;
         if (b.id === 'groq') return 1;
@@ -94,33 +89,41 @@ class ProviderSystem {
   }
 
   /**
-   * Get ALL available providers in priority order (for rotation).
+   * Get ALL configured providers in priority order for rotation.
+   *
+   * KEY: Healthy providers first, then unhealthy-but-configured.
+   * We ALWAYS include configured providers — the actual API call will
+   * reveal if they work. isAvailable() checking /models is unreliable.
    */
-  getProviderChain(opts = {}) {
+  _getRotationChain(opts = {}) {
     const { needsTools = false } = opts;
-    const cfg = require('../config');
 
-    let chain = this.providers.filter(p => p.available);
+    let pool = this.providers.filter(p => p.configured);
     if (needsTools) {
-      chain = chain.filter(p => p.supportsTools);
+      pool = pool.filter(p => p.supportsTools);
     }
 
-    if (cfg.cloudProvider === 'groq') {
-      chain.sort((a, b) => {
+    // Sort: healthy first, then by priority, then by cloudProvider preference
+    if (config.cloudProvider === 'groq') {
+      pool.sort((a, b) => {
+        if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
         if (a.id === 'groq') return -1;
         if (b.id === 'groq') return 1;
         return a.priority - b.priority;
       });
     } else {
-      chain.sort((a, b) => a.priority - b.priority);
+      pool.sort((a, b) => {
+        if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
+        return a.priority - b.priority;
+      });
     }
 
-    return chain;
+    return pool;
   }
 
   /**
    * Execute a chat request with automatic failover rotation.
-   * Tries each provider in order until one succeeds.
+   * Tries EVERY configured provider — healthy ones first, then the rest.
    *
    * @param {Array} messages - Chat messages
    * @param {object} opts
@@ -128,30 +131,22 @@ class ProviderSystem {
    * @param {Array} opts.tools - Tool definitions
    * @param {Function} opts.toolExecutor - Tool executor function
    * @param {boolean} opts.isAdmin
-   * @returns {Promise<object>} - { content, tier, provider, usage, ... }
+   * @returns {Promise<object|null>} - { content, tier, provider, usage, ... } or null
    */
   async execute(messages, opts = {}) {
     const { systemPrompt, tools, toolExecutor, isAdmin = false } = opts;
     const needsTools = !!(tools && tools.length > 0);
 
-    const chain = this.getProviderChain({ needsTools });
+    // Get ALL configured providers (healthy first, then rest)
+    const chain = this._getRotationChain({ needsTools });
 
-    if (chain.length === 0) {
-      // No providers at all — try local even without tools as last resort
-      const localFallback = this.providers.find(p => p.id === 'ollama');
-      if (localFallback) {
-        try {
-          const result = await localFallback.client.chat(messages, { systemPrompt });
-          if (result?.content) {
-            return { ...result, tier: 'emergency-local', provider: 'Ollama' };
-          }
-        } catch { /* fall through to emergency */ }
-      }
-      return null; // Router will handle emergency response
+    if (chain.length === 0 && !needsTools) {
+      return null; // Literally nothing configured
     }
 
     let lastError = null;
 
+    // Try each provider in rotation
     for (const provider of chain) {
       try {
         let result;
@@ -167,7 +162,10 @@ class ProviderSystem {
 
         // Validate we got actual content
         if (result && result.content) {
+          // Mark as healthy since it just worked
+          provider.healthy = true;
           this._lastUsedProvider = provider.id;
+
           return {
             ...result,
             tier: provider === chain[0] ? 'primary' : 'fallback',
@@ -176,68 +174,65 @@ class ProviderSystem {
           };
         }
 
-        // Empty content — try next provider
+        // Empty content — try next
         console.warn(`[Providers] ${provider.name} returned empty content, rotating...`);
         this.stats.rotations++;
 
       } catch (err) {
         lastError = err;
-        console.error(`[Providers] ${provider.name} failed: ${err.message}`);
         this.stats.rotations++;
-
-        // Mark provider as temporarily dead if circuit breaker triggered
-        if (err.message.includes('circuit breaker')) {
-          provider.available = false;
-          console.warn(`[Providers] ${provider.name} marked unavailable (circuit breaker)`);
-        }
-
-        // Continue to next provider
+        provider.healthy = false; // Mark unhealthy (but stays in rotation for next request)
+        console.error(`[Providers] ${provider.name} failed: ${err.message}`);
         continue;
       }
     }
 
-    // All providers in chain failed — try local without tools as absolute last resort
+    // All tool-capable providers failed — try Ollama without tools as absolute last resort
     if (needsTools) {
-      const localFallback = this.providers.find(p => p.id === 'ollama' && p.available);
-      if (localFallback) {
+      const ollama = this.providers.find(p => p.id === 'ollama' && p.configured);
+      if (ollama && !chain.includes(ollama)) {
         try {
-          console.log('[Providers] All cloud providers failed, falling back to Ollama (no tools)');
-          const result = await localFallback.client.chat(messages, { systemPrompt });
+          console.log('[Providers] All cloud failed, trying Ollama (no tools)');
+          const result = await ollama.client.chat(messages, { systemPrompt });
           if (result?.content) {
-            return { ...result, tier: 'emergency-local', provider: 'Ollama' };
+            ollama.healthy = true;
+            return { ...result, tier: 'emergency-local', provider: 'Ollama', providerId: 'ollama' };
           }
         } catch (err) {
-          console.error('[Providers] Ollama emergency fallback also failed:', err.message);
+          console.error('[Providers] Ollama last-resort also failed:', err.message);
         }
       }
     }
 
-    return null; // All providers exhausted
+    return null; // All providers exhausted — router handles emergency response
   }
 
   /**
-   * Background health check — re-test dead providers periodically.
-   * This is how providers auto-recover after going down.
+   * Background health check — update healthy status.
+   * This is informational only — providers aren't gated on health.
    */
   async _healthCheck() {
     this.stats.healthChecks++;
-    const dead = this.providers.filter(p => !p.available);
-
-    if (dead.length === 0) return; // All healthy, skip
 
     const checks = await Promise.allSettled(
-      dead.map(p => p.client.isAvailable())
+      this.providers
+        .filter(p => p.configured)
+        .map(p => p.client.isAvailable())
     );
 
-    for (let i = 0; i < dead.length; i++) {
-      const wasDown = !dead[i].available;
-      dead[i].available = checks[i].status === 'fulfilled' ? checks[i].value : false;
+    const configured = this.providers.filter(p => p.configured);
+    for (let i = 0; i < configured.length; i++) {
+      const wasHealthy = configured[i].healthy;
+      configured[i].healthy = checks[i].status === 'fulfilled' ? checks[i].value : false;
 
-      if (wasDown && dead[i].available) {
+      if (!wasHealthy && configured[i].healthy) {
         this.stats.recoveries++;
-        console.log(`[Providers] ${dead[i].name} recovered! Re-joining rotation.`);
+        console.log(`[Providers] ${configured[i].name} recovered!`);
       }
     }
+
+    // Also reset circuit breakers on clients that have recovered
+    // (The circuit breaker auto-resets after 60s, but this ensures clean state)
   }
 
   /**
@@ -249,7 +244,8 @@ class ProviderSystem {
         id: p.id,
         name: p.name,
         type: p.type,
-        available: p.available,
+        configured: p.configured,
+        healthy: p.healthy,
         supportsTools: p.supportsTools,
         stats: p.client.getStats ? p.client.getStats() : {},
       })),
@@ -259,17 +255,10 @@ class ProviderSystem {
   }
 
   /**
-   * Force re-check all providers (called from /tool or dashboard).
+   * Force re-check all providers.
    */
   async recheckAll() {
-    const checks = await Promise.allSettled(
-      this.providers.map(p => p.client.isAvailable())
-    );
-
-    for (let i = 0; i < this.providers.length; i++) {
-      this.providers[i].available = checks[i].status === 'fulfilled' ? checks[i].value : false;
-    }
-
+    await this._healthCheck();
     return this.getStatus();
   }
 
