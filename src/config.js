@@ -31,6 +31,13 @@ const config = {
   // Cloud provider selection: 'kimi' or 'groq'
   cloudProvider: process.env.CLOUD_PROVIDER || 'kimi',
 
+  // OpenRouter (optional — free model aggregator)
+  // Get key: https://openrouter.ai/keys
+  // Supports comma-separated key pools: key1,key2,key3
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY || null,
+  },
+
   // Google Gemini (fallback cloud AI)
   // Get key: https://aistudio.google.com/apikey
   gemini: {
