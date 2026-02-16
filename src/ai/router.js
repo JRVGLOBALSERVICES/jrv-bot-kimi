@@ -25,6 +25,9 @@ const workflows = require('../brain/workflows');
  *
  * Gemini is NOT used for text. It is reserved for media only
  * (image analysis, vision) — handled in media/image-reader.js.
+ *
+ * Robustness: Triple fallback chain, guaranteed response, circuit breaker aware.
+ * JARVIS NEVER goes silent — always returns something useful.
  */
 
 const CLOUD_TRIGGERS = [
@@ -39,16 +42,23 @@ const CLOUD_TRIGGERS = [
   'remind', 'schedule', 'call', 'generate', 'site',
 ];
 
+// Emergency fallback responses when ALL AI engines are dead
+const EMERGENCY_RESPONSES = {
+  admin: '*JARVIS Offline*\n```\nAll AI engines unreachable.\nKimi: circuit breaker tripped\nGroq: circuit breaker tripped\nOllama: not available\n\nBot is still running — commands like /report, /cars, /bookings still work.\nAI chat will auto-recover when providers come back online.\n```',
+  customer: 'Terima kasih kerana menghubungi JRV Car Rental! Kami sedang mengalami masalah teknikal.\n\nSila hubungi kami terus di +60126565477.\n\nThank you for contacting JRV Car Rental! We are experiencing a brief technical issue.\n\nPlease contact us directly at +60126565477.',
+};
+
 class AIRouter {
   constructor() {
     this.localAvailable = false;
     this.kimiAvailable = false;
     this.groqAvailable = false;
-    this.stats = { local: 0, cloud: 0, fallback: 0, toolCalls: 0, cacheHits: 0 };
+    this.stats = { local: 0, cloud: 0, fallback: 0, toolCalls: 0, cacheHits: 0, emergencyResponses: 0 };
   }
 
   async init() {
-    const [localOk, kimiOk, groqOk] = await Promise.all([
+    // Load all modules in parallel, don't crash if any fail
+    const results = await Promise.allSettled([
       localClient.isAvailable(),
       kimiClient.isAvailable(),
       groqClient.isAvailable(),
@@ -61,21 +71,28 @@ class AIRouter {
       workflows.load(),
     ]);
 
-    this.localAvailable = localOk;
-    this.kimiAvailable = kimiOk;
-    this.groqAvailable = groqOk;
+    this.localAvailable = results[0].status === 'fulfilled' ? results[0].value : false;
+    this.kimiAvailable = results[1].status === 'fulfilled' ? results[1].value : false;
+    this.groqAvailable = results[2].status === 'fulfilled' ? results[2].value : false;
+
+    // Log any module load failures (non-fatal)
+    for (let i = 3; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        console.warn(`[AI Router] Module ${i} load failed:`, results[i].reason?.message || 'unknown');
+      }
+    }
 
     const cfg = require('../config');
     const memStats = jarvisMemory.getStats();
     const skillStats = skills.getStats();
     const kbStats = knowledge.getStats();
     const taskStats = taskManager.getStats();
-    console.log(`[AI Router] Kimi: ${kimiOk ? 'OK' : 'OFFLINE'} | Groq: ${groqOk ? 'OK' : 'OFFLINE'} | Ollama: ${localOk ? 'OK' : 'OFFLINE'} | Provider: ${cfg.cloudProvider}`);
+    console.log(`[AI Router] Kimi: ${this.kimiAvailable ? 'OK' : 'OFFLINE'} | Groq: ${this.groqAvailable ? 'OK' : 'OFFLINE'} | Ollama: ${this.localAvailable ? 'OK' : 'OFFLINE'} | Provider: ${cfg.cloudProvider}`);
     console.log(`[AI Router] Memory: ${memStats.memories} memories, ${memStats.rules} rules | Skills: ${skillStats.enabled} | KB: ${kbStats.total} articles | Tasks: ${taskStats.pending} pending`);
 
-    if (!kimiOk && !groqOk) {
+    if (!this.kimiAvailable && !this.groqAvailable) {
       console.warn('[AI Router] No cloud AI available. Set KIMI_API_KEY or GROQ_API_KEY in .env');
-      if (localOk) {
+      if (this.localAvailable) {
         console.log('[AI Router] Ollama will handle all requests as fallback');
       }
     }
@@ -89,6 +106,21 @@ class AIRouter {
     if (cfg.cloudProvider === 'groq' && this.groqAvailable) return { client: groqClient, name: 'Groq' };
     if (this.kimiAvailable) return { client: kimiClient, name: 'Kimi' };
     if (this.groqAvailable) return { client: groqClient, name: 'Groq' };
+    return null;
+  }
+
+  /**
+   * Get the backup cloud client (the one NOT primary).
+   */
+  _getBackupCloudClient() {
+    const cfg = require('../config');
+    if (cfg.cloudProvider === 'groq') {
+      // Primary is Groq, backup is Kimi
+      if (this.kimiAvailable) return { client: kimiClient, name: 'Kimi' };
+    } else {
+      // Primary is Kimi, backup is Groq
+      if (this.groqAvailable) return { client: groqClient, name: 'Groq' };
+    }
     return null;
   }
 
@@ -121,9 +153,16 @@ class AIRouter {
       }
     }
 
-    const context = syncEngine.buildContextSummary();
-    const policyContext = policies.buildPolicyContext(isAdmin);
-    const fullSystemPrompt = this._buildSystemPrompt(context, policyContext, isAdmin, systemPrompt);
+    let context, policyContext, fullSystemPrompt;
+    try {
+      context = syncEngine.buildContextSummary();
+      policyContext = policies.buildPolicyContext(isAdmin);
+      fullSystemPrompt = this._buildSystemPrompt(context, policyContext, isAdmin, systemPrompt);
+    } catch (err) {
+      console.error('[AI Router] Context build failed:', err.message);
+      // Use minimal system prompt if context fails
+      fullSystemPrompt = systemPrompt || 'You are JARVIS, AI assistant for JRV Car Rental. Be helpful and concise.';
+    }
 
     let tier = forceCloud ? 'cloud' : forceLocal ? 'local' : this.classify(userMessage);
 
@@ -138,55 +177,98 @@ class AIRouter {
     ];
 
     const cloud = this._getCloudClient();
+    const backupCloud = this._getBackupCloudClient();
 
+    // --- Attempt 1: Primary path ---
     try {
       let result;
 
-      // Cloud AI — primary
       if ((tier === 'cloud' || !this.localAvailable) && cloud) {
         this.stats.cloud++;
-        // Always give AI access to tools — let the AI decide whether to use them.
-        // The AI is smart enough to skip tools for "hello" and use them for "how many cars available?"
         result = await cloud.client.chatWithTools(
           messages, TOOLS,
           async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
           { systemPrompt: fullSystemPrompt, maxRounds: 3 }
         );
         result = { ...result, tier: 'cloud', provider: cloud.name };
-      }
-      // Ollama — local fallback
-      else if (this.localAvailable) {
+      } else if (this.localAvailable) {
         this.stats.local++;
         result = await localClient.chat(messages, { systemPrompt: fullSystemPrompt });
         result = { ...result, tier: tier === 'cloud' ? 'fallback-local' : 'local' };
-      }
-      else {
-        throw new Error('No AI engines available. Set KIMI_API_KEY or GROQ_API_KEY or install Ollama.');
-      }
-
-      // Cache the result (not for admin)
-      if (cachePolicy.cache && result.content && !isAdmin) {
-        responseCache.set(userMessage, result, cachePolicy.ttl);
+      } else {
+        throw new Error('No AI engines available');
       }
 
-      return result;
+      // Validate we got actual content
+      if (result && result.content) {
+        // Cache the result (not for admin)
+        if (cachePolicy.cache && !isAdmin) {
+          responseCache.set(userMessage, result, cachePolicy.ttl);
+        }
+        return result;
+      }
+
+      // Got a result but no content — treat as failure
+      throw new Error('AI returned empty content');
 
     } catch (err) {
-      console.error(`[AI Router] ${tier} failed:`, err.message);
+      console.error(`[AI Router] Primary (${tier}) failed:`, err.message);
 
-      // Fallback: cloud failed → try local, local failed → try cloud
-      if (tier === 'cloud' && this.localAvailable) {
-        this.stats.fallback++;
-        const result = await localClient.chat(messages, { systemPrompt: fullSystemPrompt });
-        return { ...result, tier: 'fallback-local' };
-      }
-      if (tier === 'local' && cloud) {
-        this.stats.fallback++;
-        const result = await cloud.client.chatWithTools(messages, TOOLS, async (name, args) => executeTool(name, args, { isAdmin }), { systemPrompt: fullSystemPrompt });
-        return { ...result, tier: 'fallback-cloud', provider: cloud.name };
+      // --- Attempt 2: First fallback ---
+      try {
+        if (tier === 'cloud') {
+          // Cloud failed: try backup cloud, then local
+          if (backupCloud) {
+            this.stats.fallback++;
+            console.log(`[AI Router] Falling back to ${backupCloud.name}`);
+            const result = await backupCloud.client.chatWithTools(
+              messages, TOOLS,
+              async (name, args) => executeTool(name, args, { isAdmin }),
+              { systemPrompt: fullSystemPrompt, maxRounds: 3 }
+            );
+            if (result && result.content) {
+              return { ...result, tier: 'fallback-cloud', provider: backupCloud.name };
+            }
+          }
+
+          if (this.localAvailable) {
+            this.stats.fallback++;
+            console.log('[AI Router] Falling back to Ollama');
+            const result = await localClient.chat(messages, { systemPrompt: fullSystemPrompt });
+            if (result && result.content) {
+              return { ...result, tier: 'fallback-local' };
+            }
+          }
+        } else {
+          // Local failed: try primary cloud, then backup cloud
+          if (cloud) {
+            this.stats.fallback++;
+            const result = await cloud.client.chatWithTools(messages, TOOLS, async (name, args) => executeTool(name, args, { isAdmin }), { systemPrompt: fullSystemPrompt, maxRounds: 3 });
+            if (result && result.content) {
+              return { ...result, tier: 'fallback-cloud', provider: cloud.name };
+            }
+          }
+          if (backupCloud) {
+            this.stats.fallback++;
+            const result = await backupCloud.client.chatWithTools(messages, TOOLS, async (name, args) => executeTool(name, args, { isAdmin }), { systemPrompt: fullSystemPrompt, maxRounds: 3 });
+            if (result && result.content) {
+              return { ...result, tier: 'fallback-cloud', provider: backupCloud.name };
+            }
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('[AI Router] All fallbacks failed:', fallbackErr.message);
       }
 
-      throw err;
+      // --- Attempt 3: Emergency — guaranteed response, never silent ---
+      this.stats.emergencyResponses++;
+      console.error('[AI Router] EMERGENCY: All AI engines dead. Returning static response.');
+      return {
+        content: isAdmin ? EMERGENCY_RESPONSES.admin : EMERGENCY_RESPONSES.customer,
+        tier: 'emergency',
+        provider: 'none',
+        error: err.message,
+      };
     }
   }
 

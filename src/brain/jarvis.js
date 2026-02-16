@@ -139,10 +139,10 @@ class JarvisBrain {
       }
 
     } catch (err) {
-      console.error(`[JARVIS] Error processing from ${phone}:`, err.message);
+      console.error(`[JARVIS] Error processing from ${phone}:`, err?.message || err);
       response.text = isAdmin
-        ? `*Error:*\n\`\`\`${err.message}\`\`\``
-        : 'Maaf, ada masalah teknikal. Sila hubungi +60126565477.';
+        ? `*Error:*\n\`\`\`${(err?.message || 'Unknown error').slice(0, 500)}\`\`\`\n\nBot is still running. Try a /command or rephrase your question.`
+        : 'Maaf, ada masalah teknikal. Sila hubungi +60126565477.\n\nSorry, technical issue. Please contact +60126565477.';
     }
 
     // --- 6. Log message to Supabase for dashboard ---
@@ -215,21 +215,27 @@ class JarvisBrain {
     // No regex short-circuiting — the AI thinks first.
     if (isAdmin) {
       const personalContext = this._buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification);
-      const aiResult = await aiRouter.route(body, history, {
-        isAdmin,
-        systemPrompt: personalContext,
-        intent: classification.intent,
-        forceTools: true,  // Always give AI access to tools
-      });
-      response.text = aiResult.content;
-      response.tier = aiResult.tier;
+      let aiResult;
+      try {
+        aiResult = await aiRouter.route(body, history, {
+          isAdmin,
+          systemPrompt: personalContext,
+          intent: classification.intent,
+          forceTools: true,  // Always give AI access to tools
+        });
+      } catch (err) {
+        console.error('[JARVIS] Admin AI route failed:', err.message);
+        aiResult = { content: `*Error:*\n\`\`\`${err.message}\`\`\``, tier: 'error' };
+      }
+      response.text = aiResult?.content || '*No response from AI engine. Try again or use a /command.*';
+      response.tier = aiResult?.tier || 'error';
 
       // Voice notes for admin reports
-      if (body.toLowerCase().includes('report')) {
+      if (body.toLowerCase().includes('report') && response.text) {
         try {
-          const voiceText = jarvisVoice.formatForVoice(aiResult.content);
+          const voiceText = jarvisVoice.formatForVoice(response.text);
           const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
-          response.voice = voiceResult.filePath;
+          if (voiceResult?.filePath) response.voice = voiceResult.filePath;
         } catch (err) {
           console.warn('[JARVIS] Voice generation failed:', err.message);
         }
@@ -261,14 +267,20 @@ class JarvisBrain {
     // --- Customer: AI-powered response with tools ---
     const personalContext = this._buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification);
 
-    const aiResult = await aiRouter.route(body, history, {
-      isAdmin,
-      systemPrompt: personalContext,
-      intent: classification.intent,
-    });
+    let aiResult;
+    try {
+      aiResult = await aiRouter.route(body, history, {
+        isAdmin,
+        systemPrompt: personalContext,
+        intent: classification.intent,
+      });
+    } catch (err) {
+      console.error('[JARVIS] Customer AI route failed:', err.message);
+      aiResult = null;
+    }
 
-    response.text = aiResult.content;
-    response.tier = aiResult.tier;
+    response.text = aiResult?.content || 'Terima kasih! Sila hubungi kami di +60126565477 untuk bantuan lanjut.\n\nThank you! Please contact us at +60126565477 for further assistance.';
+    response.tier = aiResult?.tier || 'error';
   }
 
   // --- Intent-based direct responses ---
