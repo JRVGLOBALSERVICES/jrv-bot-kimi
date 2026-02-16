@@ -18,7 +18,7 @@ const config = require('../config');
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
-const REQUEST_TIMEOUT = 30000;
+const REQUEST_TIMEOUT = 45000;
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_RESET_MS = 60000;
 

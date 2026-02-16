@@ -40,12 +40,13 @@ async function boot() {
   console.log('[Boot] File safety protocol active (.backups/ + .trash/)');
   console.log(`[Boot] Safety audit log: ${fileSafety.getLog().length} entries`);
 
-  // ─── 1. Start Supabase sync ────────────────────────
+  // ─── 1. Start Supabase sync (await first sync to populate cache) ──
   console.log('[Boot] Starting Supabase sync...');
-  syncEngine.start();
-
-  // Wait for initial sync
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  const syncOk = await Promise.race([
+    syncEngine.start(),
+    new Promise(resolve => setTimeout(() => { console.warn('[Boot] Supabase sync taking >10s, continuing...'); resolve(false); }, 10000)),
+  ]);
+  if (!syncOk) console.warn('[Boot] Supabase sync incomplete — cache may be empty for first requests');
 
   // ─── 2. Initialize AI router (loads providers + SOUL.md) ──
   console.log('[Boot] Initializing AI engines (OpenClaw provider rotation)...');

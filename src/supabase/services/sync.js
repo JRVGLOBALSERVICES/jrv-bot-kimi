@@ -265,9 +265,19 @@ class SyncEngine {
     return this._paused;
   }
 
-  start() {
+  /**
+   * Start sync engine. Returns a Promise that resolves when the FIRST
+   * sync completes (or fails). Caller can await this to ensure cache
+   * is populated before handling messages.
+   */
+  async start() {
     console.log('[Sync] Starting auto-sync every 5 minutes...');
-    this.sync().then(() => this.writeHeartbeat());
+    const firstSync = await this.sync().catch(err => {
+      console.error('[Sync] Initial sync failed:', err.message);
+      return false;
+    });
+    this.writeHeartbeat().catch(() => {});
+
     this.syncInterval = setInterval(() => {
       this.sync().then(() => this.writeHeartbeat());
     }, this.intervalMs);
@@ -279,6 +289,8 @@ class SyncEngine {
       this.pollControl();
       this.pollConfig();
     }, this.controlIntervalMs);
+
+    return firstSync;
   }
 
   stop() {
