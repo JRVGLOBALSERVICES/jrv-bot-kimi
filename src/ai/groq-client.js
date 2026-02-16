@@ -12,10 +12,15 @@ const config = require('../config');
  * Features: Chat, Tool Calling
  * Free tier: ~500K tokens/day
  * Get key: https://console.groq.com
+ *
+ * Robustness: Circuit breaker, null-safe parsing, timeouts, retries.
  */
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
+const REQUEST_TIMEOUT = 30000;
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+const CIRCUIT_BREAKER_RESET_MS = 60000;
 
 class GroqClient {
   constructor() {
@@ -23,6 +28,73 @@ class GroqClient {
     this.apiKey = config.groq.apiKey;
     this.model = config.groq.model;
     this.stats = { calls: 0, tokens: 0, errors: 0, toolCalls: 0 };
+
+    // Circuit breaker state
+    this._consecutiveFailures = 0;
+    this._circuitOpen = false;
+    this._circuitOpenedAt = 0;
+  }
+
+  _checkCircuit() {
+    if (!this._circuitOpen) return true;
+    if (Date.now() - this._circuitOpenedAt > CIRCUIT_BREAKER_RESET_MS) {
+      this._circuitOpen = false;
+      this._consecutiveFailures = 0;
+      console.log('[Groq] Circuit breaker reset — retrying');
+      return true;
+    }
+    return false;
+  }
+
+  _onSuccess() {
+    this._consecutiveFailures = 0;
+    this._circuitOpen = false;
+  }
+
+  _onFailure() {
+    this._consecutiveFailures++;
+    if (this._consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this._circuitOpen = true;
+      this._circuitOpenedAt = Date.now();
+      console.warn(`[Groq] Circuit breaker OPEN after ${this._consecutiveFailures} failures — pausing for ${CIRCUIT_BREAKER_RESET_MS / 1000}s`);
+    }
+  }
+
+  /**
+   * Safely extract response from API data.
+   */
+  _parseResponse(data) {
+    if (!data) {
+      console.warn('[Groq] Empty response data');
+      return { content: null, error: 'Empty response from Groq API' };
+    }
+
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.warn('[Groq] No choices in response:', JSON.stringify(data).slice(0, 300));
+      if (data.error) {
+        return { content: null, error: `Groq API error: ${data.error.message || JSON.stringify(data.error).slice(0, 200)}` };
+      }
+      return { content: null, error: 'Groq returned empty choices' };
+    }
+
+    const choice = data.choices[0];
+    if (!choice || !choice.message) {
+      console.warn('[Groq] Choice has no message:', JSON.stringify(choice).slice(0, 200));
+      return { content: null, error: 'Groq returned choice without message' };
+    }
+
+    const msg = choice.message;
+    const result = {
+      content: msg.content || '',
+      usage: data.usage || null,
+      model: data.model || this.model,
+    };
+
+    if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+      result.toolCalls = msg.tool_calls;
+    }
+
+    return result;
   }
 
   async chat(messages, options = {}) {
@@ -33,6 +105,10 @@ class GroqClient {
       tools = null,
       model = null,
     } = options;
+
+    if (!this._checkCircuit()) {
+      throw new Error('Groq circuit breaker open — too many consecutive failures');
+    }
 
     const fullMessages = [];
     if (systemPrompt) {
@@ -56,18 +132,22 @@ class GroqClient {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-        const response = await fetch(`${this.apiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
+        let response;
+        try {
+          response = await fetch(`${this.apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
 
         if (response.status === 429) {
           const waitMs = RETRY_DELAYS[attempt] || 4000;
@@ -77,41 +157,56 @@ class GroqClient {
         }
 
         if (!response.ok) {
-          const errText = await response.text();
+          const errText = await response.text().catch(() => 'unknown error');
           throw new Error(`Groq API ${response.status}: ${errText.slice(0, 200)}`);
         }
 
-        const data = await response.json();
+        let data;
+        try {
+          data = await response.json();
+        } catch (parseErr) {
+          throw new Error(`Groq response not valid JSON: ${parseErr.message}`);
+        }
+
+        const result = this._parseResponse(data);
+
+        if (result.error && !result.content) {
+          throw new Error(result.error);
+        }
+
         this.stats.calls++;
+        this._onSuccess();
+
         if (data.usage) {
           this.stats.tokens += (data.usage.total_tokens || 0);
         }
 
-        const choice = data.choices[0];
-
-        if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
-          this.stats.toolCalls += choice.message.tool_calls.length;
-          return {
-            content: choice.message.content || '',
-            toolCalls: choice.message.tool_calls,
-            usage: data.usage,
-            model: data.model,
-          };
+        if (result.toolCalls) {
+          this.stats.toolCalls += result.toolCalls.length;
         }
 
-        return {
-          content: choice.message.content,
-          usage: data.usage,
-          model: data.model,
-        };
+        return result;
 
       } catch (err) {
         lastError = err;
         this.stats.errors++;
+        this._onFailure();
 
-        if (attempt < MAX_RETRIES && (err.message.includes('429') || err.message.includes('ECONNRESET') || err.message.includes('fetch failed') || err.name === 'AbortError')) {
+        const isRetryable = err.name === 'AbortError' ||
+          err.message.includes('429') ||
+          err.message.includes('ECONNRESET') ||
+          err.message.includes('ECONNREFUSED') ||
+          err.message.includes('ETIMEDOUT') ||
+          err.message.includes('fetch failed') ||
+          err.message.includes('network') ||
+          err.message.includes('socket') ||
+          err.message.includes('502') ||
+          err.message.includes('503') ||
+          err.message.includes('504');
+
+        if (attempt < MAX_RETRIES && isRetryable) {
           const waitMs = RETRY_DELAYS[attempt] || 4000;
-          console.warn(`[Groq] Error: ${err.message}, retrying in ${waitMs}ms`);
+          console.warn(`[Groq] Error: ${err.message}, retrying in ${waitMs}ms (${attempt + 1}/${MAX_RETRIES})`);
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
@@ -128,11 +223,24 @@ class GroqClient {
     let round = 0;
 
     while (round < maxRounds) {
-      const result = await this.chat(currentMessages, {
-        ...options,
-        systemPrompt: round === 0 ? systemPrompt : undefined,
-        tools,
-      });
+      let result;
+      try {
+        result = await this.chat(currentMessages, {
+          ...options,
+          systemPrompt: round === 0 ? systemPrompt : undefined,
+          tools,
+        });
+      } catch (err) {
+        console.error(`[Groq] chatWithTools round ${round} failed:`, err.message);
+        if (round > 0) {
+          try {
+            return await this.chat(currentMessages, { ...options, tools: null });
+          } catch {
+            return { content: `Sorry, I encountered an error: ${err.message}`, error: err.message };
+          }
+        }
+        throw err;
+      }
 
       if (!result.toolCalls) return result;
 
@@ -143,26 +251,43 @@ class GroqClient {
       });
 
       for (const toolCall of result.toolCalls) {
+        let toolResult;
         try {
-          const args = JSON.parse(toolCall.function.arguments);
-          const toolResult = await toolExecutor(toolCall.function.name, args);
-          currentMessages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
-          });
+          let args = {};
+          if (toolCall.function && toolCall.function.arguments) {
+            try {
+              args = JSON.parse(toolCall.function.arguments);
+            } catch (parseErr) {
+              console.warn(`[Groq] Bad tool args for ${toolCall.function?.name}: ${parseErr.message}`);
+              args = {};
+            }
+          }
+
+          const toolName = toolCall.function?.name || 'unknown';
+
+          toolResult = await Promise.race([
+            toolExecutor(toolName, args),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after 15s`)), 15000)),
+          ]);
         } catch (err) {
-          currentMessages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({ error: err.message }),
-          });
+          console.warn(`[Groq] Tool ${toolCall.function?.name} error:`, err.message);
+          toolResult = { error: err.message };
         }
+
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id || `call_${Date.now()}`,
+          content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult || { error: 'no result' }),
+        });
       }
       round++;
     }
 
-    return this.chat(currentMessages, { ...options, tools: null });
+    try {
+      return await this.chat(currentMessages, { ...options, tools: null });
+    } catch {
+      return { content: 'I processed your request but ran into complexity. Please try a simpler question.' };
+    }
   }
 
   async ask(prompt, systemPrompt = null, options = {}) {
@@ -189,7 +314,11 @@ class GroqClient {
   }
 
   getStats() {
-    return this.stats;
+    return {
+      ...this.stats,
+      circuitOpen: this._circuitOpen,
+      consecutiveFailures: this._consecutiveFailures,
+    };
   }
 }
 
