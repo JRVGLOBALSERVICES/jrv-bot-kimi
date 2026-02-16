@@ -190,7 +190,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'get_reports',
-      description: 'Generate daily business reports with LIVE data. Reports: 1=Sorted by Time, 2=Contact List, 3=Today Timeslots, 4=Follow-up Required, 5=Available Cars, 6=Daily Summary, fleet=Fleet Status, earnings=Revenue. Use "all" or "1,2,3,4,5,6" for all 6 daily reports. Output is WhatsApp-formatted — send directly, do NOT reformat or summarize. If stored format templates exist in data store, they are appended.',
+      description: 'Generate daily business reports with LIVE data. Reports: 1=Expiring by Models, 2=Expiring with Contacts, 3=Expiring by Time Slot, 4=Follow-up Required, 5=Available Cars, 6=Summary/Totals, fleet=Fleet Status, earnings=Revenue. Use "all" or "1,2,3,4,5,6" for all 6 daily reports. Output is WhatsApp-formatted — SEND DIRECTLY as-is, do NOT reformat, summarize, or describe it.',
       parameters: {
         type: 'object',
         properties: {
@@ -908,17 +908,6 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       const reports = require('../brain/reports');
       const requested = (args.reports || 'all').toLowerCase();
 
-      // Check for stored report format templates in data store
-      // Keys: jarvis_report_format_1 through _6
-      let storedFormats = {};
-      try {
-        const formatEntries = await dataStoreService.getByKeyPrefix('jarvis_report_format');
-        for (const entry of formatEntries) {
-          const num = entry.key.replace(/\D/g, '');
-          if (num) storedFormats[num] = entry.value;
-        }
-      } catch (e) { /* non-critical, use hardcoded */ }
-
       const reportMap = {
         '1': () => reports.sortedByTime(),
         '2': () => reports.sortedByContact(),
@@ -941,21 +930,13 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       for (const key of keys) {
         const gen = reportMap[key];
         if (gen) {
-          const report = await gen();
-          if (storedFormats[key]) {
-            // Append stored format template so AI can reformat if asked
-            const fmt = typeof storedFormats[key] === 'string'
-              ? storedFormats[key]
-              : JSON.stringify(storedFormats[key], null, 2);
-            results.push(report + `\n\n[Stored format template for report ${key}]:\n${fmt}`);
-          } else {
-            results.push(report);
-          }
+          results.push(await gen());
         } else {
           results.push(`Unknown report: ${key}`);
         }
       }
-      return results.join('\n\n---\n\n');
+      // Reports are pre-formatted WhatsApp text — AI must send as-is
+      return results.join('\n\n───────────────\n\n');
     }
 
     case 'get_system_stats': {

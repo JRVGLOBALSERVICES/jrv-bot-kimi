@@ -4,160 +4,210 @@ const { formatMYT, todayMYT, daysBetween, nowMYT } = require('../utils/time');
 const policies = require('./policies');
 
 /**
- * Report Generator
+ * Report Generator — Matches OpenClaw jrv-bot report format.
+ *
+ * Report 1: Expiring by Models (grouped alphabetically by car_type)
+ * Report 2: Expiring with Contacts (flat list + WhatsApp links)
+ * Report 3: Expiring by Time Slot (today/tomorrow/this week/next week/later)
+ * Report 4: Follow-up Required (overdue + expiring + pending)
+ * Report 5: Available Cars (grouped by model+year, deduplicated)
+ * Report 6: Summary/Totals (fleet stats, availability rate, composition)
+ *
  * DB columns: agreements use plate_number, mobile, date_start, date_end, total_price, car_type
  * Cars use plate_number, body_type, daily_price, _carName (enriched from catalog)
  */
 class ReportGenerator {
+
+  // ─── Report 1: Expiring by Models ─────────────────────
   async sortedByTime() {
     const agreements = await agreementsService.getActiveAgreements();
     const today = todayMYT();
 
-    let report = `*📋 Report 1: Sorted by Time*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    let report = `*📋 REPORT 1: EXPIRING BY MODELS*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
 
     if (agreements.length === 0) {
-      report += `\`\`\`No active bookings\`\`\``;
+      report += `No active bookings`;
       return report;
     }
 
-    const sorted = [...agreements].sort((a, b) => new Date(getEndDate(a) || 0) - new Date(getEndDate(b) || 0));
-
-    report += `\`\`\`\n`;
-    for (const a of sorted) {
+    // Group by car model/type, sorted alphabetically
+    const byModel = {};
+    for (const a of agreements) {
+      const model = a.car_type || 'Unknown';
+      if (!byModel[model]) byModel[model] = [];
       const endDate = (getEndDate(a) || '').slice(0, 10);
-      const startDate = (getStartDate(a) || '').slice(0, 10);
       const daysLeft = daysBetween(today, endDate);
-      const status = daysLeft < 0 ? '🚨 OVERDUE' : daysLeft <= 2 ? '⚠️ EXPIRING' : '✅';
-      report += `${a.plate_number} | ${a.customer_name}\n`;
-      report += `  ${startDate} → ${endDate} (${daysLeft}d) ${status}\n`;
-      if (a.mobile) report += `  📱 ${a.mobile}\n`;
+      byModel[model].push({
+        plate: a.plate_number,
+        customer: a.customer_name || 'N/A',
+        returnDate: endDate,
+        daysLeft,
+      });
+    }
+
+    // Sort each group by return date (soonest first)
+    for (const entries of Object.values(byModel)) {
+      entries.sort((a, b) => new Date(a.returnDate) - new Date(b.returnDate));
+    }
+
+    for (const [model, entries] of Object.entries(byModel).sort((a, b) => a[0].localeCompare(b[0]))) {
+      report += `*${model}:*\n`;
+      for (const e of entries) {
+        const icon = e.daysLeft < 0 ? '🚨' : e.daysLeft <= 1 ? '⚠️' : '✅';
+        report += `  ${icon} ${e.plate} | ${e.customer} | Return: ${e.returnDate} (${e.daysLeft}d)\n`;
+      }
       report += `\n`;
     }
-    report += `\`\`\``;
-    report += `\nTotal: ${agreements.length} active`;
 
+    report += `Total Active: ${agreements.length}`;
     return report;
   }
 
+  // ─── Report 2: Expiring with Contacts ─────────────────
   async sortedByContact() {
     const agreements = await agreementsService.getActiveAgreements();
+    const today = todayMYT();
 
-    let report = `*📱 Report 2: Sorted by Contact*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    let report = `*📱 REPORT 2: EXPIRING WITH CONTACTS*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
 
     if (agreements.length === 0) {
-      report += `\`\`\`No active bookings\`\`\``;
+      report += `No active bookings`;
       return report;
     }
 
-    const grouped = {};
-    for (const a of agreements) {
-      const key = a.mobile || a.customer_name;
-      if (!grouped[key]) grouped[key] = { name: a.customer_name, phone: a.mobile, bookings: [] };
-      grouped[key].bookings.push(a);
+    // Sort by end date (soonest first)
+    const sorted = [...agreements].sort((a, b) => new Date(getEndDate(a) || 0) - new Date(getEndDate(b) || 0));
+
+    for (const a of sorted) {
+      const endDate = (getEndDate(a) || '').slice(0, 10);
+      const daysLeft = daysBetween(today, endDate);
+      const icon = daysLeft < 0 ? '🚨 OVERDUE' : daysLeft <= 1 ? '⚠️' : '';
+      const phone = a.mobile || 'N/A';
+      const waLink = a.mobile ? `wa.me/${a.mobile.replace(/\D/g, '')}` : '';
+
+      report += `${a.car_type || 'N/A'} (${a.plate_number}) | ${endDate} (${daysLeft}d) ${icon}\n`;
+      report += `  👤 ${a.customer_name || 'N/A'}\n`;
+      report += `  📱 ${phone}${waLink ? ` | ${waLink}` : ''}\n\n`;
     }
 
-    report += `\`\`\`\n`;
-    for (const [key, customer] of Object.entries(grouped)) {
-      report += `👤 ${customer.name}\n`;
-      report += `   📱 ${customer.phone || 'N/A'}\n`;
-      for (const b of customer.bookings) {
-        report += `   ${b.plate_number} | ${(getStartDate(b) || '').slice(0, 10)} → ${(getEndDate(b) || '').slice(0, 10)}\n`;
+    report += `Total: ${agreements.length}`;
+    return report;
+  }
+
+  // ─── Report 3: Expiring by Time Slot ──────────────────
+  async sortedByTimeslot() {
+    const agreements = await agreementsService.getActiveAgreements();
+    const today = todayMYT();
+
+    let report = `*🕐 REPORT 3: EXPIRING BY TIME SLOT*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
+
+    if (agreements.length === 0) {
+      report += `No active bookings`;
+      return report;
+    }
+
+    const slots = {
+      'TODAY (0-1 days)': [],
+      'TOMORROW (1-2 days)': [],
+      'THIS WEEK (2-7 days)': [],
+      'NEXT WEEK (7-14 days)': [],
+      'LATER (14+ days)': [],
+    };
+
+    for (const a of agreements) {
+      const endDate = (getEndDate(a) || '').slice(0, 10);
+      const daysLeft = daysBetween(today, endDate);
+
+      const entry = {
+        model: a.car_type || 'N/A',
+        plate: a.plate_number,
+        customer: a.customer_name || 'N/A',
+        phone: a.mobile || 'N/A',
+        daysLeft,
+      };
+
+      if (daysLeft < 0) slots['TODAY (0-1 days)'].push(entry); // overdue counts as today
+      else if (daysLeft <= 1) slots['TODAY (0-1 days)'].push(entry);
+      else if (daysLeft <= 2) slots['TOMORROW (1-2 days)'].push(entry);
+      else if (daysLeft <= 7) slots['THIS WEEK (2-7 days)'].push(entry);
+      else if (daysLeft <= 14) slots['NEXT WEEK (7-14 days)'].push(entry);
+      else slots['LATER (14+ days)'].push(entry);
+    }
+
+    for (const [slot, entries] of Object.entries(slots)) {
+      report += `*${slot}: ${entries.length} vehicle(s)*\n`;
+      if (entries.length > 0) {
+        for (const e of entries) {
+          report += `  • ${e.model} (${e.plate}) - ${e.customer}\n`;
+          report += `    📱 ${e.phone}\n`;
+        }
       }
       report += `\n`;
     }
-    report += `\`\`\``;
-    report += `\n${Object.keys(grouped).length} customers, ${agreements.length} bookings`;
 
     return report;
   }
 
-  async sortedByTimeslot() {
-    const today = todayMYT();
-    const allAgreements = await agreementsService.getActiveAgreements();
-    const allAgreementsAll = await agreementsService.getAllAgreements();
-
-    const pickupsToday = allAgreementsAll.filter(a =>
-      a.date_start && a.date_start.startsWith(today) && ['New', 'Editted', 'Extended'].includes(a.status)
-    );
-    const returnsToday = allAgreements.filter(a =>
-      a.date_end && a.date_end.startsWith(today)
-    );
-
-    let report = `*🕐 Report 3: Today's Timeslots*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
-
-    report += `*Pickups Today (${pickupsToday.length}):*\n`;
-    if (pickupsToday.length > 0) {
-      report += `\`\`\`\n`;
-      for (const a of pickupsToday) {
-        report += `${a.plate_number} → ${a.customer_name}\n`;
-        report += `  📱 ${a.mobile || 'N/A'}\n`;
-      }
-      report += `\`\`\`\n`;
-    } else {
-      report += `\`\`\`No pickups today\`\`\`\n`;
-    }
-
-    report += `\n*Returns Today (${returnsToday.length}):*\n`;
-    if (returnsToday.length > 0) {
-      report += `\`\`\`\n`;
-      for (const a of returnsToday) {
-        report += `${a.plate_number} ← ${a.customer_name}\n`;
-        report += `  📱 ${a.mobile || 'N/A'}\n`;
-      }
-      report += `\`\`\``;
-    } else {
-      report += `\`\`\`No returns today\`\`\``;
-    }
-
-    return report;
-  }
-
+  // ─── Report 4: Follow-up Required ─────────────────────
   async followUpReport() {
-    const [expiring, overdue] = await Promise.all([
+    const [expiring, overdue, allAgreements] = await Promise.all([
       agreementsService.getExpiringAgreements(3),
       agreementsService.getOverdueAgreements(),
+      agreementsService.getAllAgreements(),
     ]);
 
-    let report = `*📞 Report 4: Follow-up Required*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    const today = todayMYT();
 
+    // Pending status bookings (need follow-up)
+    const pending = allAgreements.filter(a =>
+      a.status && /pending|awaiting/i.test(a.status)
+    );
+
+    let report = `*📞 REPORT 4: FOLLOW-UP REQUIRED*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
+
+    // Overdue section
     report += `*🚨 OVERDUE (${overdue.length}):*\n`;
     if (overdue.length > 0) {
-      report += `\`\`\`\n`;
       for (const a of overdue) {
         const endDate = (getEndDate(a) || '').slice(0, 10);
-        const daysLate = daysBetween(endDate, todayMYT());
-        report += `${a.plate_number} | ${a.customer_name} (${daysLate}d late)\n`;
-        report += `  📱 ${a.mobile || 'N/A'}\n`;
-        report += `  Due: ${endDate}\n`;
+        const daysLate = daysBetween(endDate, today);
+        report += `  • ${a.customer_name || 'N/A'} - ${a.car_type || 'N/A'} (${a.plate_number})\n`;
+        report += `    ${daysLate}d overdue | Due: ${endDate} | 📱 ${a.mobile || 'N/A'}\n`;
       }
-      report += `\`\`\`\n`;
     } else {
-      report += `\`\`\`None - all good!\`\`\`\n`;
+      report += `  None - all good! ✅\n`;
     }
 
+    // Expiring section
     report += `\n*⚠️ EXPIRING IN 3 DAYS (${expiring.length}):*\n`;
     if (expiring.length > 0) {
-      report += `\`\`\`\n`;
       for (const a of expiring) {
         const endDate = (getEndDate(a) || '').slice(0, 10);
-        const daysLeft = daysBetween(todayMYT(), endDate);
-        report += `${a.plate_number} | ${a.customer_name} (${daysLeft}d left)\n`;
-        report += `  📱 ${a.mobile || 'N/A'}\n`;
-        report += `  Ends: ${endDate}\n`;
+        const daysLeft = daysBetween(today, endDate);
+        report += `  • ${a.customer_name || 'N/A'} - ${a.car_type || 'N/A'} (${a.plate_number})\n`;
+        report += `    ${daysLeft}d left | Ends: ${endDate} | 📱 ${a.mobile || 'N/A'}\n`;
       }
-      report += `\`\`\``;
     } else {
-      report += `\`\`\`None expiring soon\`\`\``;
+      report += `  None expiring soon ✅\n`;
     }
 
-    report += `\n\n*Action:* Contact these customers to confirm extend/return.`;
+    // Pending section
+    if (pending.length > 0) {
+      report += `\n*📋 PENDING (${pending.length}):*\n`;
+      for (const a of pending) {
+        report += `  • ${a.customer_name || 'N/A'} - ${a.car_type || 'N/A'} (${a.plate_number}) [${a.status}]\n`;
+      }
+    }
+
+    report += `\n*Action:* Contact these customers to confirm extend/return.`;
     return report;
   }
 
+  // ─── Report 5: Available Cars ─────────────────────────
   async availableReport() {
     const [cars, activeAgreements] = await Promise.all([
       fleetService.getAllCars(),
@@ -166,115 +216,92 @@ class ReportGenerator {
 
     const { validated, mismatches } = validateFleetStatus(cars, activeAgreements);
     const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
+    const activeCars = validated.filter(c => c.status !== 'inactive');
 
-    let report = `*🚗 Report 5: Available Cars*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    let report = `*🚗 REPORT 5: AVAILABLE CARS*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
 
     if (available.length === 0) {
-      report += `\`\`\`No cars available\`\`\``;
+      report += `No cars available`;
       return report;
     }
 
-    const grouped = {};
+    // Group by model (carName/body_type + year) — deduplicated view
+    const byModel = {};
     for (const car of available) {
-      const cat = car.body_type || 'other';
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(car);
+      const name = car._carName || car.body_type || 'Unknown';
+      const key = `${name}${car.year ? ' (' + car.year + ')' : ''}`;
+      if (!byModel[key]) byModel[key] = [];
+      byModel[key].push(car);
     }
 
-    for (const [cat, catCars] of Object.entries(grouped)) {
-      report += `*${cat}:*\n\`\`\`\n`;
-      for (const car of catCars) {
-        report += `${car.plate_number} | ${car._carName || car.body_type || ''}`;
-        report += ` | RM${car.daily_price}/day\n`;
-      }
-      report += `\`\`\`\n`;
+    for (const [model, modelCars] of Object.entries(byModel).sort((a, b) => a[0].localeCompare(b[0]))) {
+      report += `*${model}: ${modelCars.length} unit(s)*\n`;
+      report += `  ${modelCars.map(c => c.plate_number).join(', ')}\n`;
+      report += `  RM${modelCars[0].daily_price}/day\n\n`;
     }
 
-    report += `\nTotal available: ${available.length}/${validated.length}`;
+    report += `Total Available: ${available.length}/${activeCars.length}`;
 
     if (mismatches.length > 0) {
-      report += `\n\n*⚠️ Mismatches (${mismatches.length}):*\n\`\`\`\n`;
+      report += `\n\n*⚠️ Status Mismatches (${mismatches.length}):*\n`;
       for (const m of mismatches) {
-        report += `${m.plate}: ${m.dbStatus} → ${m.actualStatus}\n`;
+        report += `  ${m.plate}: ${m.dbStatus} → ${m.actualStatus}\n`;
       }
-      report += `\`\`\``;
     }
 
     return report;
   }
 
+  // ─── Report 6: Summary/Totals ─────────────────────────
   async summaryReport() {
-    const [fleetStats, agreementStats, overdue, expiring, topCustomers, cars, activeAgreements] = await Promise.all([
-      fleetService.getFleetStats(),
-      agreementsService.getStats(),
-      agreementsService.getOverdueAgreements(),
-      agreementsService.getExpiringAgreements(3),
-      agreementsService.getTopCustomers(5),
+    const [cars, activeAgreements, overdue, expiringToday] = await Promise.all([
       fleetService.getAllCars(),
       agreementsService.getActiveAgreements(),
+      agreementsService.getOverdueAgreements(),
+      agreementsService.getExpiringAgreements(1),
     ]);
 
-    const { mismatches } = validateFleetStatus(cars, activeAgreements);
+    const { validated } = validateFleetStatus(cars, activeAgreements);
+    const activeCars = validated.filter(c => c.status !== 'inactive');
+    const available = validated.filter(c => (c._validatedStatus || c.status) === 'available');
+    const today = todayMYT();
 
-    let report = `*📊 Report 6: Daily Summary*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    let report = `*📊 REPORT 6: SUMMARY/TOTALS*\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
 
-    report += `*Fleet:*\n\`\`\`\n`;
-    report += `Total: ${fleetStats.total} | Available: ${fleetStats.available}\n`;
-    report += `Rented: ${fleetStats.rented} | Maintenance: ${fleetStats.maintenance}\n`;
-    report += `\`\`\`\n`;
+    report += `Fleet Size: ${activeCars.length} active vehicles\n`;
+    report += `Currently Rented: ${activeAgreements.length}\n`;
+    report += `Available: ${available.length}\n`;
+    const rate = activeCars.length > 0 ? ((available.length / activeCars.length) * 100).toFixed(1) : '0.0';
+    report += `Availability Rate: ${rate}%\n`;
 
-    report += `\n*Bookings:*\n\`\`\`\n`;
-    report += `Active: ${agreementStats.activeCount}\n`;
-    report += `Expiring (3d): ${agreementStats.expiringCount}\n`;
-    report += `Overdue: ${agreementStats.overdueCount}\n`;
-    report += `\`\`\`\n`;
-
-    report += `\n*Revenue (This Month):*\n\`\`\`\n`;
-    report += `Total: RM${agreementStats.monthRevenue.toFixed(2)}\n`;
-    report += `Collected: RM${agreementStats.monthCollected.toFixed(2)}\n`;
-    report += `Pending: RM${(agreementStats.monthRevenue - agreementStats.monthCollected).toFixed(2)}\n`;
-    report += `Customers: ${agreementStats.totalCustomers}\n`;
-    report += `\`\`\``;
+    // Expiring today
+    report += `\nTotal Expiring Today: ${expiringToday.length} car(s)\n`;
 
     if (overdue.length > 0) {
-      report += `\n\n*🚨 Overdue (${overdue.length}):*\n\`\`\`\n`;
-      for (const a of overdue) {
-        const endDate = (getEndDate(a) || '').slice(0, 10);
-        const days = daysBetween(endDate, todayMYT());
-        report += `${a.plate_number} - ${a.customer_name} (${days}d)\n`;
-      }
-      report += `\`\`\``;
+      report += `🚨 Overdue Returns: ${overdue.length}\n`;
     }
 
-    if (expiring.length > 0) {
-      report += `\n\n*⚠️ Expiring (${expiring.length}):*\n\`\`\`\n`;
-      for (const a of expiring) {
-        report += `${a.plate_number} - ${a.customer_name} (${(getEndDate(a) || '').slice(0, 10)})\n`;
+    // Fleet composition by car type
+    const carTypes = [...new Set(activeCars.map(c => c._carName || c.body_type).filter(Boolean))];
+    if (carTypes.length > 0) {
+      report += `\n*Fleet Composition (${carTypes.length} types):*\n`;
+      for (const type of carTypes.sort()) {
+        const total = activeCars.filter(c => (c._carName || c.body_type) === type).length;
+        const rented = activeAgreements.filter(a => {
+          const car = activeCars.find(c => c.plate_number?.toUpperCase() === a.plate_number?.toUpperCase());
+          return car && (car._carName || car.body_type) === type;
+        }).length;
+        report += `  ${type}: ${rented}/${total} rented\n`;
       }
-      report += `\`\`\``;
     }
 
-    if (mismatches.length > 0) {
-      report += `\n\n*⚠️ Status Mismatches (${mismatches.length}):*\n\`\`\`\n`;
-      for (const m of mismatches) {
-        report += `${m.plate}: ${m.dbStatus} → ${m.actualStatus}\n`;
-      }
-      report += `\`\`\``;
-    }
-
-    if (topCustomers.length > 0) {
-      report += `\n\n*Top Customers:*\n\`\`\`\n`;
-      for (const c of topCustomers.slice(0, 5)) {
-        report += `${c.name} (${c.rentals}x) RM${c.totalSpent.toFixed(0)}\n`;
-      }
-      report += `\`\`\``;
-    }
-
+    report += `\nStatus: ${overdue.length === 0 ? 'Ready for operations ✅' : '⚠️ Action needed — overdue returns'}`;
     return report;
   }
 
+  // ─── Fleet Report (bonus) ─────────────────────────────
   async fleetReport() {
     const [cars, activeAgreements] = await Promise.all([
       fleetService.getAllCars(),
@@ -288,47 +315,44 @@ class ReportGenerator {
     const overdueList = validated.filter(c => c._overdue);
 
     let report = `*🚗 JRV Fleet Report*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
-    report += `\`\`\`Total: ${validated.length} cars\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
+    report += `Total: ${validated.length} cars\n`;
     report += `Available: ${available.length}\n`;
     report += `Rented: ${rented.length}\n`;
     report += `Maintenance: ${maintenance.length}\n`;
     if (overdueList.length) report += `⚠ Overdue returns: ${overdueList.length}\n`;
-    report += `\`\`\`\n`;
 
     if (available.length > 0) {
-      report += `\n*Available Cars:*\n\`\`\`\n`;
+      report += `\n*Available Cars:*\n`;
       for (const car of available) {
-        report += `${car.plate_number} ${car._carName || car.body_type || ''} RM${car.daily_price}/day\n`;
+        report += `  ${car.plate_number} ${car._carName || car.body_type || ''} RM${car.daily_price}/day\n`;
       }
-      report += `\`\`\``;
     }
 
     if (overdueList.length > 0) {
-      report += `\n\n*⚠ Overdue Returns:*\n\`\`\`\n`;
+      report += `\n*⚠ Overdue Returns:*\n`;
       for (const car of overdueList) {
         const agreement = activeAgreements.find(a => a.plate_number?.toUpperCase() === car.plate_number?.toUpperCase());
         if (agreement) {
           const endDate = (getEndDate(agreement) || '').slice(0, 10);
           const daysLate = daysBetween(endDate, todayMYT());
-          report += `${car.plate_number} - ${agreement.customer_name} (${daysLate}d overdue)\n`;
+          report += `  ${car.plate_number} - ${agreement.customer_name} (${daysLate}d overdue)\n`;
         }
       }
-      report += `\`\`\``;
     }
 
     if (mismatches.length > 0) {
-      report += `\n\n*⚠ Status Mismatches:*\n\`\`\`\n`;
+      report += `\n*⚠ Status Mismatches:*\n`;
       for (const m of mismatches) {
-        report += `${m.plate}: "${m.dbStatus}" → "${m.actualStatus}"\n`;
-        report += `  ${m.reason}\n`;
+        report += `  ${m.plate}: "${m.dbStatus}" → "${m.actualStatus}"\n`;
+        report += `    ${m.reason}\n`;
       }
-      report += `\`\`\``;
     }
 
     return report;
   }
 
+  // ─── Earnings Report (bonus) ──────────────────────────
   async earningsReport() {
     const [todayEarnings, monthEarnings] = await Promise.all([
       agreementsService.getTodayEarnings(),
@@ -336,21 +360,19 @@ class ReportGenerator {
     ]);
 
     let report = `*💰 JRV Earnings Report*\n`;
-    report += `*${formatMYT(new Date(), 'full')}*\n\n`;
+    report += `🕐 ${formatMYT(new Date(), 'full')}\n\n`;
 
-    report += `*Today:*\n\`\`\`\n`;
-    report += `Bookings: ${todayEarnings.count}\n`;
-    report += `Revenue: RM${todayEarnings.total.toFixed(2)}\n`;
-    report += `Collected: RM${todayEarnings.collected.toFixed(2)}\n`;
-    report += `Pending: RM${todayEarnings.pending.toFixed(2)}\n`;
-    report += `\`\`\`\n`;
+    report += `*Today:*\n`;
+    report += `  Bookings: ${todayEarnings.count}\n`;
+    report += `  Revenue: RM${todayEarnings.total.toFixed(2)}\n`;
+    report += `  Collected: RM${todayEarnings.collected.toFixed(2)}\n`;
+    report += `  Pending: RM${todayEarnings.pending.toFixed(2)}\n`;
 
-    report += `\n*This Month:*\n\`\`\`\n`;
-    report += `Bookings: ${monthEarnings.count}\n`;
-    report += `Revenue: RM${monthEarnings.total.toFixed(2)}\n`;
-    report += `Collected: RM${monthEarnings.collected.toFixed(2)}\n`;
-    report += `Pending: RM${monthEarnings.pending.toFixed(2)}\n`;
-    report += `\`\`\``;
+    report += `\n*This Month:*\n`;
+    report += `  Bookings: ${monthEarnings.count}\n`;
+    report += `  Revenue: RM${monthEarnings.total.toFixed(2)}\n`;
+    report += `  Collected: RM${monthEarnings.collected.toFixed(2)}\n`;
+    report += `  Pending: RM${monthEarnings.pending.toFixed(2)}\n`;
 
     return report;
   }

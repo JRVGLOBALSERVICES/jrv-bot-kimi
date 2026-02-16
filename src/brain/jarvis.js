@@ -610,6 +610,9 @@ class JarvisBrain {
     if (lower === '/overdue' && isAdmin) return { cmd: 'overdue' };
     if (lower === '/help' || lower === '/commands' || lower === '/cmd') return { cmd: 'help', isAdmin, isBoss };
 
+    // Catch unrecognized slash commands — prevent AI hallucination
+    if (lower.startsWith('/') && lower.length > 1) return { cmd: 'unknown', raw: text };
+
     return null;
   }
 
@@ -782,6 +785,10 @@ class JarvisBrain {
         }
         break;
       }
+      case 'unknown': {
+        response.text = `*Unknown command:* \`${command.raw}\`\n\nType /commands to see available commands.`;
+        break;
+      }
       case 'help': {
         response.text = `*JARVIS Commands*\n\n`;
 
@@ -801,12 +808,12 @@ class JarvisBrain {
           response.text += `\n*Admin Reports:*\n\`\`\`\n` +
             `/report      Daily summary\n` +
             `/report1-6   ALL 6 reports at once\n` +
-            `/report1     Sorted by time\n` +
-            `/report2     Sorted by contact\n` +
-            `/report3     Sorted by timeslot\n` +
-            `/report4     Follow-up report\n` +
-            `/report5     Available cars report\n` +
-            `/report6     Full summary\n` +
+            `/report1     Expiring by Models\n` +
+            `/report2     Expiring with Contacts\n` +
+            `/report3     Expiring by Time Slot\n` +
+            `/report4     Follow-up Required\n` +
+            `/report5     Available Cars\n` +
+            `/report6     Summary/Totals\n` +
             `/fleet-report Fleet validation\n` +
             `/earnings    Revenue report\n` +
             `/expiring    Expiring in 3 days\n` +
