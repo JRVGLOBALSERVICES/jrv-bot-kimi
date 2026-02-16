@@ -13,6 +13,8 @@ const reminders = require('./reminders');
 const adminTools = require('./admin-tools');
 const jarvisVoice = require('../voice/jarvis-voice');
 const locationService = require('../utils/location');
+const customerProfiles = require('./customer-profiles');
+const workflows = require('./workflows');
 const { agreementsService, fleetService, syncEngine } = require('../supabase/services');
 const { validateFleetStatus, colorName } = require('../utils/validators');
 
@@ -63,6 +65,15 @@ class JarvisBrain {
 
     // Track conversation
     this.conversation.addMessage(phone, 'user', body || `[${type}]`, { name });
+
+    // Passive profile learning — records every interaction
+    const lang = this.conversation.getContext(phone)?.language || null;
+    customerProfiles.recordInteraction(phone, {
+      name: name || (existingCustomer ? existingCustomer.customer_name : null),
+      language: lang,
+      messageLength: (body || '').length,
+      isVoice: type === 'voice' || type === 'ptt',
+    });
 
     if (existingCustomer) {
       this.conversation.setContext(phone, 'isExistingCustomer', true);
@@ -900,6 +911,10 @@ class JarvisBrain {
 
     if (name) parts.push(`WhatsApp name: "${name}"`);
     if (classification) parts.push(`Detected intent: ${classification.intent}`);
+
+    // Inject customer profile summary (learned from past interactions)
+    const profileSummary = customerProfiles.getSummary(phone);
+    if (profileSummary) parts.push(`Profile: ${profileSummary}`);
 
     // Compact live data summary
     const cache = syncEngine.getCache();

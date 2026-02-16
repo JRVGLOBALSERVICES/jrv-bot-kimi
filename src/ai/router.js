@@ -6,6 +6,12 @@ const syncEngine = require('../supabase/services/sync');
 const policies = require('../brain/policies');
 const responseCache = require('../utils/cache');
 const jarvisMemory = require('../brain/memory');
+const skills = require('../brain/skills');
+const knowledge = require('../brain/knowledge');
+const customerProfiles = require('../brain/customer-profiles');
+const documents = require('../brain/documents');
+const taskManager = require('../brain/tasks');
+const workflows = require('../brain/workflows');
 
 /**
  * AI Router - Routes text messages to the best AI engine.
@@ -47,6 +53,12 @@ class AIRouter {
       kimiClient.isAvailable(),
       groqClient.isAvailable(),
       jarvisMemory.load(),
+      skills.load(),
+      knowledge.load(),
+      customerProfiles.load(),
+      documents.load(),
+      taskManager.load(),
+      workflows.load(),
     ]);
 
     this.localAvailable = localOk;
@@ -55,8 +67,11 @@ class AIRouter {
 
     const cfg = require('../config');
     const memStats = jarvisMemory.getStats();
+    const skillStats = skills.getStats();
+    const kbStats = knowledge.getStats();
+    const taskStats = taskManager.getStats();
     console.log(`[AI Router] Kimi: ${kimiOk ? 'OK' : 'OFFLINE'} | Groq: ${groqOk ? 'OK' : 'OFFLINE'} | Ollama: ${localOk ? 'OK' : 'OFFLINE'} | Provider: ${cfg.cloudProvider}`);
-    console.log(`[AI Router] Memory: ${memStats.memories} memories, ${memStats.rules} rules`);
+    console.log(`[AI Router] Memory: ${memStats.memories} memories, ${memStats.rules} rules | Skills: ${skillStats.enabled} | KB: ${kbStats.total} articles | Tasks: ${taskStats.pending} pending`);
 
     if (!kimiOk && !groqOk) {
       console.warn('[AI Router] No cloud AI available. Set KIMI_API_KEY or GROQ_API_KEY in .env');
@@ -264,16 +279,40 @@ class AIRouter {
     const memoryContext = jarvisMemory.buildMemoryContext();
     if (memoryContext) parts.push('', memoryContext);
 
+    // Inject learned skills
+    const skillContext = skills.buildSkillContext();
+    if (skillContext) parts.push('', skillContext);
+
+    // Inject knowledge base summary
+    const kbContext = knowledge.buildKBContext();
+    if (kbContext) parts.push('', kbContext);
+
+    // Inject active tasks summary (admin only)
+    if (isAdmin) {
+      const taskSummary = taskManager.buildSummary();
+      if (taskSummary) parts.push('', taskSummary);
+    }
+
     if (isAdmin) {
       parts.push(
         '',
-        'MEMORY COMMANDS:',
-        'When boss tells you to remember something, use save_memory tool.',
-        'When boss asks "what do you remember?" use list_memories tool.',
-        'When boss says "forget X" or "delete memory", use delete_memory tool.',
-        'When boss says "new rule:" or "from now on:", use add_rule tool.',
-        'When boss asks about rules, use list_rules tool.',
-        'Confirm after saving/deleting. Show the ID so boss can reference it later.',
+        'BRAIN COMMANDS:',
+        'Memory: save_memory, recall_memory, list_memories, delete_memory — for facts, prefs, notes.',
+        'Rules: add_rule, update_rule, list_rules, delete_rule — for operational rules JARVIS must follow.',
+        'Skills: save_skill, find_skill, list_skills — for multi-step procedures (HOW to do things).',
+        'Knowledge Base: kb_upsert, kb_search, kb_list — for FAQ articles and structured docs.',
+        'Customer Profiles: get_customer_profile, add_customer_note, tag_customer, search_customers.',
+        'Documents: create_document — generate invoices, receipts, quotations, agreements, notices.',
+        'Tasks: create_task, list_tasks, update_task — assign and track work for team members.',
+        'Workflows: create_workflow, list_workflows, toggle_workflow — automatic actions on triggers.',
+        'Web: web_search, fetch_url — search internet, read webpages.',
+        '',
+        'When boss teaches you something:',
+        '- Simple fact → save_memory',
+        '- "Always/never do X" → add_rule',
+        '- Multi-step procedure → save_skill',
+        '- Q&A for customers → kb_upsert',
+        'Confirm after saving. Show ID for future reference.',
       );
     }
 
@@ -290,6 +329,12 @@ class AIRouter {
       groqStats: groqClient.getStats(),
       cacheStats: responseCache.getStats(),
       memoryStats: jarvisMemory.getStats(),
+      skillStats: skills.getStats(),
+      kbStats: knowledge.getStats(),
+      profileStats: customerProfiles.getStats(),
+      taskStats: taskManager.getStats(),
+      workflowStats: workflows.getStats(),
+      docStats: documents.getStats(),
     };
   }
 }

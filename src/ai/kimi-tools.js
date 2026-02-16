@@ -382,6 +382,318 @@ const TOOLS = [
       },
     },
   },
+
+  // ─── Skill Scripts (teachable procedures) ──────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'save_skill',
+      description: 'Teach JARVIS a multi-step procedure. Use when boss says "learn how to...", "when X happens, do Y", or teaches a workflow. Unlike memories (facts), skills are executable step-by-step procedures.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Skill name (e.g., "accident_report", "vip_greeting")' },
+          trigger: { type: 'string', description: 'When to use this skill (e.g., "When customer reports accident")' },
+          steps: { type: 'array', items: { type: 'string' }, description: 'Ordered steps to follow' },
+          context: { type: 'string', description: 'Additional context about when/how to use this skill' },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Tags for searching' },
+        },
+        required: ['name', 'steps'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_skill',
+      description: 'Search for a learned skill/procedure. Use when you need to know how to handle a situation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What situation or skill to search for' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_skills',
+      description: 'List all learned skills/procedures.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_skill',
+      description: 'Delete a learned skill by ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Skill ID to delete' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+
+  // ─── Knowledge Base (structured FAQ/docs) ──────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'kb_upsert',
+      description: 'Add or update a knowledge base article. Use when boss says "add to KB", "update FAQ", or teaches a Q&A pair. Articles are auto-referenced when customers ask questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'Article topic/title (e.g., "insurance", "airport_pickup")' },
+          question: { type: 'string', description: 'Common question this answers (e.g., "Is insurance included?")' },
+          answer: { type: 'string', description: 'The answer/content' },
+          category: { type: 'string', description: 'Category: general, pricing, policy, faq, procedure, location. Default: general' },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Search tags' },
+        },
+        required: ['topic', 'answer'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'kb_search',
+      description: 'Search the knowledge base for relevant articles. Use BEFORE answering customer questions to check if there is a KB article with the right answer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          category: { type: 'string', description: 'Filter by category (optional)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'kb_list',
+      description: 'List all knowledge base articles, optionally filtered by category.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'Filter by category (optional)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'kb_delete',
+      description: 'Delete a knowledge base article by ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Article ID to delete' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+
+  // ─── Customer Profiles ────────────────────────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'get_customer_profile',
+      description: 'Get the full profile of a customer — preferences, booking history, admin notes, tags. Use when you need context about a specific customer beyond just their current rental.',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string', description: 'Customer phone number' },
+        },
+        required: ['phone'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_customer_note',
+      description: 'Add a note to a customer profile. Use when admin says "note about customer X: ...", "mark customer X as VIP", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string', description: 'Customer phone number' },
+          note: { type: 'string', description: 'The note to add' },
+        },
+        required: ['phone', 'note'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tag_customer',
+      description: 'Add or remove a tag/label on a customer (VIP, student, corporate, blacklisted, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          phone: { type: 'string', description: 'Customer phone number' },
+          tag: { type: 'string', description: 'Tag to add (e.g., "VIP", "student", "corporate")' },
+          action: { type: 'string', description: '"add" or "remove". Default: add' },
+        },
+        required: ['phone', 'tag'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_customers',
+      description: 'Search customer profiles by name, phone, or tag.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Name, phone number, or tag to search' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+
+  // ─── Document Generator ───────────────────────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'create_document',
+      description: 'Generate a formatted business document (WhatsApp-ready text). Types: invoice, receipt, quotation, agreement, payment_reminder, notice, custom. Use when asked to create invoices, receipts, quotations, or any business document.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', description: 'Document type: invoice, receipt, quotation, agreement, payment_reminder, notice, custom' },
+          customerName: { type: 'string', description: 'Customer name' },
+          phone: { type: 'string', description: 'Customer phone' },
+          carName: { type: 'string', description: 'Car name/model' },
+          plate: { type: 'string', description: 'Plate number (admin only)' },
+          days: { type: 'number', description: 'Number of rental days' },
+          rate: { type: 'number', description: 'Daily rate in RM' },
+          amount: { type: 'number', description: 'Total amount (for receipts)' },
+          deposit: { type: 'number', description: 'Deposit amount' },
+          deliveryFee: { type: 'number', description: 'Delivery fee' },
+          startDate: { type: 'string', description: 'Rental start date' },
+          endDate: { type: 'string', description: 'Rental end date' },
+          paymentMethod: { type: 'string', description: 'Payment method used' },
+          title: { type: 'string', description: 'Document title (for notices/custom)' },
+          body: { type: 'string', description: 'Document body (for notices/custom)' },
+          notes: { type: 'string', description: 'Additional notes' },
+        },
+        required: ['type'],
+      },
+    },
+  },
+
+  // ─── Task Manager ─────────────────────────────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'create_task',
+      description: 'Create a task and optionally assign to a team member. Use when boss says "create task", "assign X to Y", "remind team to do Z", or any work assignment.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Task title/description' },
+          assignedName: { type: 'string', description: 'Assign to team member by name (e.g., "Vir Uncle", "Amisha")' },
+          dueDate: { type: 'string', description: 'Due date: "today", "tomorrow", "in 3 days", or ISO date' },
+          priority: { type: 'string', description: 'Priority: low, normal, high, urgent. Default: normal' },
+          category: { type: 'string', description: 'Category: maintenance, delivery, cleaning, paperwork, followup, other. Default: other' },
+          linkedCar: { type: 'string', description: 'Related car plate number (optional)' },
+          description: { type: 'string', description: 'Additional details' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_tasks',
+      description: 'List tasks with optional filters. Shows pending and in-progress tasks by default.',
+      parameters: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', description: 'Filter by status: pending, in_progress, completed, cancelled' },
+          assignedTo: { type: 'string', description: 'Filter by assignee name' },
+          category: { type: 'string', description: 'Filter by category' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task',
+      description: 'Update a task status or add a note. Use when boss says "mark task done", "task X is in progress", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Task ID' },
+          status: { type: 'string', description: 'New status: pending, in_progress, completed, cancelled' },
+          note: { type: 'string', description: 'Add a note to the task' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+
+  // ─── Workflows (auto-actions) ─────────────────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'create_workflow',
+      description: 'Create an automatic workflow/action. Use when boss says "automatically do X when Y happens", "set up auto-reply for after hours", etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Workflow name' },
+          trigger: { type: 'string', description: 'Event trigger: after_hours, new_customer, returning_customer, payment_received, booking_confirmed, custom_event' },
+          message: { type: 'string', description: 'Message template. Use {{customerName}}, {{phone}}, {{carName}} for variables.' },
+          actionType: { type: 'string', description: 'Action type: reply (send to customer), notify_admin (alert team), context (add to AI context). Default: reply' },
+          conditions: { type: 'object', description: 'Conditions that must be met (optional). E.g., {"totalBookings": {"$gt": 3}}' },
+        },
+        required: ['name', 'trigger'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_workflows',
+      description: 'List all workflows (built-in + custom).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'toggle_workflow',
+      description: 'Enable or disable a workflow.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Workflow ID' },
+          enabled: { type: 'boolean', description: 'true to enable, false to disable' },
+        },
+        required: ['id', 'enabled'],
+      },
+    },
+  },
 ];
 
 // ─── Tool Executor ───────────────────────────────────────
@@ -660,6 +972,12 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         uptime: `${Math.round(os.uptime() / 3600)}h`,
         heapMemory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         jarvisMemory: stats.memoryStats || { memories: 0, rules: 0 },
+        skills: stats.skillStats || { total: 0, enabled: 0 },
+        knowledgeBase: stats.kbStats || { total: 0 },
+        customerProfiles: stats.profileStats || { totalProfiles: 0 },
+        tasks: stats.taskStats || { pending: 0 },
+        workflows: stats.workflowStats || { customWorkflows: 0 },
+        documents: stats.docStats || { documentsGenerated: 0 },
         webSearch: require('../utils/web-search').getStats(),
         switchCmd: '/switch <kimi|groq> [model]',
       };
@@ -805,6 +1123,221 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       const memory = require('../brain/memory');
       const deleted = await memory.deleteRule(args.id);
       return deleted ? { deleted: true, id: args.id } : { deleted: false, message: `Rule "${args.id}" not found` };
+    }
+
+    // ─── Skill Scripts ──────────────────────────────────────
+
+    case 'save_skill': {
+      if (!isAdmin) return { error: 'Only admin/boss can teach skills.' };
+      const skills = require('../brain/skills');
+      const result = await skills.save(args.name, {
+        trigger: args.trigger,
+        steps: args.steps,
+        context: args.context,
+        tags: args.tags || [],
+      });
+      return { saved: true, id: result.id, name: result.name, steps: result.steps.length, version: result.version };
+    }
+
+    case 'find_skill': {
+      const skills = require('../brain/skills');
+      const results = skills.find(args.query);
+      if (results.length === 0) return { found: false, message: `No skills matching "${args.query}"` };
+      return results.map(s => ({ id: s.id, name: s.name, trigger: s.trigger, steps: s.steps }));
+    }
+
+    case 'list_skills': {
+      const skills = require('../brain/skills');
+      const list = skills.list();
+      if (list.length === 0) return { count: 0, message: 'No skills learned yet. Teach me with save_skill.' };
+      return { count: list.length, skills: list.map(s => ({ id: s.id, name: s.name, trigger: s.trigger, stepsCount: s.steps.length })) };
+    }
+
+    case 'delete_skill': {
+      if (!isAdmin) return { error: 'Only admin/boss can delete skills.' };
+      const skills = require('../brain/skills');
+      const deleted = await skills.delete(args.id);
+      return deleted ? { deleted: true, id: args.id } : { deleted: false, message: `Skill "${args.id}" not found` };
+    }
+
+    // ─── Knowledge Base ─────────────────────────────────────
+
+    case 'kb_upsert': {
+      if (!isAdmin) return { error: 'Only admin can manage the knowledge base.' };
+      const kb = require('../brain/knowledge');
+      const result = await kb.upsert(args.topic, {
+        question: args.question,
+        answer: args.answer,
+        category: args.category || 'general',
+        tags: args.tags || [],
+      });
+      return { saved: true, id: result.id, topic: result.topic, category: result.category, version: result.version };
+    }
+
+    case 'kb_search': {
+      const kb = require('../brain/knowledge');
+      const results = kb.search(args.query, { category: args.category });
+      if (results.length === 0) return { found: false, message: `No KB articles matching "${args.query}"` };
+      return results.map(a => ({ id: a.id, topic: a.topic, question: a.question, answer: a.answer, category: a.category }));
+    }
+
+    case 'kb_list': {
+      const kb = require('../brain/knowledge');
+      const list = kb.list(args.category || null);
+      if (list.length === 0) return { count: 0, message: 'Knowledge base is empty. Add articles with kb_upsert.' };
+      return { count: list.length, categories: kb.categories(), articles: list.map(a => ({ id: a.id, topic: a.topic, question: a.question, category: a.category })) };
+    }
+
+    case 'kb_delete': {
+      if (!isAdmin) return { error: 'Only admin can delete KB articles.' };
+      const kb = require('../brain/knowledge');
+      const deleted = await kb.delete(args.id);
+      return deleted ? { deleted: true, id: args.id } : { deleted: false, message: `Article "${args.id}" not found` };
+    }
+
+    // ─── Customer Profiles ──────────────────────────────────
+
+    case 'get_customer_profile': {
+      if (!isAdmin) return { error: 'Customer profiles are only available to admin users.' };
+      const profiles = require('../brain/customer-profiles');
+      const profile = profiles.get(args.phone);
+      return {
+        phone: args.phone,
+        name: profile.name,
+        interactions: profile.interactions,
+        preferredLang: profile.preferredLang,
+        preferredCarType: profile.preferredCarType,
+        totalBookings: profile.totalBookings,
+        tags: profile.tags,
+        adminNotes: (profile.adminNotes || []).slice(-5),
+        bookingHistory: (profile.bookingHistory || []).slice(-5),
+        firstSeen: profile.firstSeen,
+        lastSeen: profile.lastSeen,
+      };
+    }
+
+    case 'add_customer_note': {
+      if (!isAdmin) return { error: 'Only admin can add customer notes.' };
+      const profiles = require('../brain/customer-profiles');
+      await profiles.addNote(args.phone, args.note);
+      return { added: true, phone: args.phone, note: args.note };
+    }
+
+    case 'tag_customer': {
+      if (!isAdmin) return { error: 'Only admin can tag customers.' };
+      const profiles = require('../brain/customer-profiles');
+      if ((args.action || 'add') === 'remove') {
+        await profiles.removeTag(args.phone, args.tag);
+        return { removed: true, phone: args.phone, tag: args.tag };
+      }
+      await profiles.setTag(args.phone, args.tag);
+      return { tagged: true, phone: args.phone, tag: args.tag };
+    }
+
+    case 'search_customers': {
+      if (!isAdmin) return { error: 'Customer search is only available to admin users.' };
+      const profiles = require('../brain/customer-profiles');
+      const results = profiles.search(args.query);
+      if (results.length === 0) return { found: false, message: `No customer profiles matching "${args.query}"` };
+      return results.slice(0, 10).map(p => ({
+        phone: p.phone,
+        name: p.name,
+        tags: p.tags,
+        totalBookings: p.totalBookings,
+        lastSeen: p.lastSeen,
+      }));
+    }
+
+    // ─── Document Generator ─────────────────────────────────
+
+    case 'create_document': {
+      if (!isAdmin) return { error: 'Only admin can generate documents.' };
+      const docs = require('../brain/documents');
+      const result = await docs.generate(args.type, args);
+      return result;
+    }
+
+    // ─── Task Manager ───────────────────────────────────────
+
+    case 'create_task': {
+      if (!isAdmin) return { error: 'Only admin can create tasks.' };
+      const taskMgr = require('../brain/tasks');
+      const task = await taskMgr.create({
+        title: args.title,
+        description: args.description,
+        assignedName: args.assignedName,
+        dueDate: args.dueDate,
+        priority: args.priority || 'normal',
+        category: args.category || 'other',
+        linkedCar: args.linkedCar,
+      });
+      return { created: true, id: task.id, title: task.title, assignedName: task.assignedName, dueDate: task.dueDate, priority: task.priority };
+    }
+
+    case 'list_tasks': {
+      if (!isAdmin) return { error: 'Only admin can view tasks.' };
+      const taskMgr = require('../brain/tasks');
+      const tasks = taskMgr.list({
+        status: args.status,
+        assignedTo: args.assignedTo,
+        category: args.category,
+      });
+      if (tasks.length === 0) return { count: 0, message: 'No active tasks.' };
+      return {
+        count: tasks.length,
+        overdue: taskMgr.getOverdue().length,
+        tasks: tasks.map(t => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          assignedName: t.assignedName,
+          dueDate: t.dueDate,
+          priority: t.priority,
+          category: t.category,
+        })),
+      };
+    }
+
+    case 'update_task': {
+      if (!isAdmin) return { error: 'Only admin can update tasks.' };
+      const taskMgr = require('../brain/tasks');
+      let result;
+      if (args.status) {
+        result = await taskMgr.updateStatus(args.id, args.status);
+      }
+      if (args.note) {
+        result = await taskMgr.addNote(args.id, args.note);
+      }
+      if (!result) return { error: `Task "${args.id}" not found` };
+      return { updated: true, id: args.id, status: result.status, title: result.title };
+    }
+
+    // ─── Workflows ──────────────────────────────────────────
+
+    case 'create_workflow': {
+      if (!isAdmin) return { error: 'Only admin can create workflows.' };
+      const workflows = require('../brain/workflows');
+      const wf = await workflows.create({
+        name: args.name,
+        trigger: args.trigger,
+        message: args.message,
+        actionType: args.actionType || 'reply',
+        conditions: args.conditions || {},
+      });
+      return { created: true, id: wf.id, name: wf.name, trigger: wf.trigger };
+    }
+
+    case 'list_workflows': {
+      const workflows = require('../brain/workflows');
+      return workflows.list();
+    }
+
+    case 'toggle_workflow': {
+      if (!isAdmin) return { error: 'Only admin can toggle workflows.' };
+      const workflows = require('../brain/workflows');
+      const result = await workflows.toggle(args.id, args.enabled);
+      if (!result) return { error: `Workflow "${args.id}" not found` };
+      return { toggled: true, id: args.id, enabled: result.enabled, name: result.name };
     }
 
     default:
