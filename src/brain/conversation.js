@@ -1,6 +1,15 @@
 /**
- * Conversation Manager - Tracks conversation state per user.
- * Supports multi-language detection: Malay, English, Chinese, Tamil.
+ * Conversation Manager — OpenClaw-style session management.
+ *
+ * Each conversation is a "session" with metadata:
+ * - Message history (last 20)
+ * - Language detection (4 languages)
+ * - Session metadata: model used, token count, response times
+ * - Intent tracking
+ * - Provider preference per session
+ *
+ * Like OpenClaw: "Each conversation is a Session with metadata
+ * (model, tokens, thinking level, verbose mode, group activation)"
  */
 class ConversationManager {
   constructor() {
@@ -19,12 +28,56 @@ class ConversationManager {
         lastActivity: Date.now(),
         intent: null,
         awaitingResponse: null,
+        // ─── OpenClaw-style session metadata ───
+        session: {
+          totalTokens: 0,
+          totalRequests: 0,
+          lastProvider: null,
+          lastModel: null,
+          avgResponseMs: 0,
+          createdAt: Date.now(),
+        },
       });
     }
 
     const conv = this.conversations.get(phone);
     conv.lastActivity = Date.now();
     return conv;
+  }
+
+  /**
+   * Track AI response metadata for this session.
+   */
+  trackResponse(phone, metadata = {}) {
+    const conv = this.getOrCreate(phone);
+    const s = conv.session;
+
+    if (metadata.usage) {
+      s.totalTokens += (metadata.usage.total_tokens || metadata.usage.prompt_tokens || 0) + (metadata.usage.completion_tokens || 0);
+    }
+    s.totalRequests++;
+    if (metadata.provider) s.lastProvider = metadata.provider;
+    if (metadata.model) s.lastModel = metadata.model;
+    if (metadata.responseMs) {
+      // Running average
+      s.avgResponseMs = s.avgResponseMs === 0
+        ? metadata.responseMs
+        : Math.round((s.avgResponseMs * (s.totalRequests - 1) + metadata.responseMs) / s.totalRequests);
+    }
+  }
+
+  /**
+   * Get session summary for admin /status.
+   */
+  getSessionSummary(phone) {
+    const conv = this.conversations.get(phone);
+    if (!conv) return null;
+    return {
+      language: conv.language,
+      intent: conv.intent,
+      messages: conv.messages.length,
+      ...conv.session,
+    };
   }
 
   addMessage(phone, role, content, metadata = {}) {

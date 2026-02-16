@@ -237,6 +237,36 @@ class WhatsAppChannel {
     return parsed;
   }
 
+  // ─── Typing Indicators (OpenClaw-style presence) ─────
+
+  /**
+   * Send "typing..." indicator to a chat.
+   * Like OpenClaw: "Typing indicators and presence tracking across all connected clients."
+   * Makes JARVIS feel alive — user sees typing while AI is processing.
+   */
+  async sendTyping(to) {
+    if (!this.ready || !this.client) return;
+    try {
+      const chat = await this.client.getChatById(to);
+      if (chat) await chat.sendStateTyping();
+    } catch {
+      // Non-critical — don't crash for typing indicator failure
+    }
+  }
+
+  /**
+   * Clear typing indicator.
+   */
+  async clearTyping(to) {
+    if (!this.ready || !this.client) return;
+    try {
+      const chat = await this.client.getChatById(to);
+      if (chat) await chat.clearState();
+    } catch {
+      // Non-critical
+    }
+  }
+
   // ─── Send Methods ─────────────────────────────────────
 
   async sendText(to, text) {
