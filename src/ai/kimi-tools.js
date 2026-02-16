@@ -932,8 +932,9 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         return gen ? gen().catch(err => `Report ${key} error: ${err.message}`) : Promise.resolve(`Unknown report: ${key}`);
       });
       const results = await Promise.all(tasks);
-      // Reports are pre-formatted WhatsApp text — AI must send as-is
-      return results.join('\n\n───────────────\n\n');
+      // Prefix with passthrough instruction so the AI doesn't reformat
+      const joined = results.join('\n\n───────────────\n\n');
+      return `[IMPORTANT: These reports are pre-formatted for WhatsApp. Send them EXACTLY as-is. Do NOT rewrite, summarize, or reformat. Just output the text below directly.]\n\n${joined}`;
     }
 
     case 'get_system_stats': {
