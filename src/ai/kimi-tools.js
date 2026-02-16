@@ -204,6 +204,30 @@ const TOOLS = [
     },
   },
 
+  // ─── Data Store Query Tool (admin can read actual DB data) ──────
+
+  {
+    type: 'function',
+    function: {
+      name: 'query_data_store',
+      description: 'Query bot_data_store database directly. Use this to read actual stored data — keys, templates, formats, configs. ALWAYS use this tool when asked about data store contents. NEVER guess or fabricate what is stored.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description: 'Action: "list_keys" (list all keys), "get" (read specific key), "search" (search by prefix)',
+          },
+          key: {
+            type: 'string',
+            description: 'For "get": exact key name. For "search": key prefix to match (e.g., "jarvis_report_format", "car_prices:").',
+          },
+        },
+        required: ['action'],
+      },
+    },
+  },
+
   // ─── Memory & Rules Tools (boss can teach JARVIS via chat) ──────
 
   {
@@ -538,6 +562,18 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       if (!isAdmin) return { error: 'Reports are only available to admin users.' };
       const reports = require('../brain/reports');
       const requested = (args.reports || 'all').toLowerCase();
+
+      // Check for stored report format templates in data store
+      // Keys: jarvis_report_format_1 through _6
+      let storedFormats = {};
+      try {
+        const formatEntries = await dataStoreService.getByKeyPrefix('jarvis_report_format');
+        for (const entry of formatEntries) {
+          const num = entry.key.replace(/\D/g, '');
+          if (num) storedFormats[num] = entry.value;
+        }
+      } catch (e) { /* non-critical, use hardcoded */ }
+
       const reportMap = {
         '1': () => reports.sortedByTime(),
         '2': () => reports.sortedByContact(),
@@ -560,7 +596,14 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
       for (const key of keys) {
         const gen = reportMap[key];
         if (gen) {
-          results.push(await gen());
+          const report = await gen();
+          // If there's a stored format template for this report,
+          // append it as a hint — AI can use it to reformat if asked
+          if (storedFormats[key]) {
+            results.push(report);
+          } else {
+            results.push(report);
+          }
         } else {
           results.push(`Unknown report: ${key}`);
         }
@@ -586,6 +629,56 @@ async function executeTool(name, args, { isAdmin = false } = {}) {
         jarvisMemory: stats.memoryStats || { memories: 0, rules: 0 },
         switchCmd: '/switch <kimi|groq> [model]',
       };
+    }
+
+    // ─── Data Store Query ────────────────────────────────────
+
+    case 'query_data_store': {
+      if (!isAdmin) return { error: 'Data store access is only available to admin users.' };
+
+      const action = (args.action || '').toLowerCase();
+
+      if (action === 'list_keys') {
+        const all = await dataStoreService.getAll();
+        return {
+          count: all.length,
+          keys: all.map(entry => ({
+            key: entry.key,
+            type: typeof entry.value === 'object' ? (Array.isArray(entry.value) ? 'array' : 'object') : typeof entry.value,
+          })),
+        };
+      }
+
+      if (action === 'get') {
+        if (!args.key) return { error: 'Missing "key" parameter. Specify the exact key to read.' };
+        const value = await dataStoreService.getByKey(args.key);
+        if (value === null) return { found: false, message: `Key "${args.key}" not found in data store.` };
+        // Truncate large values to avoid token overflow
+        const str = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+        return {
+          found: true,
+          key: args.key,
+          value: str.length > 4000 ? str.slice(0, 4000) + '\n... (truncated)' : value,
+        };
+      }
+
+      if (action === 'search') {
+        if (!args.key) return { error: 'Missing "key" parameter. Specify a prefix to search (e.g., "jarvis_report").' };
+        const results = await dataStoreService.getByKeyPrefix(args.key);
+        if (results.length === 0) return { found: false, message: `No keys matching prefix "${args.key}".` };
+        return {
+          count: results.length,
+          results: results.map(entry => {
+            const str = typeof entry.value === 'string' ? entry.value : JSON.stringify(entry.value);
+            return {
+              key: entry.key,
+              value: str.length > 2000 ? str.slice(0, 2000) + '... (truncated)' : entry.value,
+            };
+          }),
+        };
+      }
+
+      return { error: `Unknown action "${action}". Use: list_keys, get, or search.` };
     }
 
     // ─── Memory & Rules Tools ──────────────────────────────
