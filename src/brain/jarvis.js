@@ -164,69 +164,26 @@ class JarvisBrain {
       return;
     }
 
-    // --- Direct admin queries that Kimi confuses ---
-    if (isAdmin) {
-      // "What model" = AI model, not car model
-      if (/what\s*(ai\s*)?model|which\s*(ai\s*)?model|what.*being\s*used|which.*engine/i.test(body) && !/car\s*model|kereta/i.test(body)) {
-        const stats = aiRouter.getStats();
-        const kimiStats = stats.kimiStats || {};
-        const cfg = require('../config');
-        response.text = `*AI Model Info*\n\`\`\`\n` +
-          `Engine: Kimi K2.5 (by Moonshot AI)\n` +
-          `Model: ${cfg.kimi.model}\n` +
-          `Calls: ${kimiStats.calls || 0} | Tokens: ${kimiStats.tokens || 0}\n` +
-          `Tool calls: ${stats.toolCalls}\n` +
-          `Local fallback: ${aiRouter.localAvailable ? 'Available' : 'Offline'}\n` +
-          `\`\`\``;
+    // --- Voice note request (admin only, needs special handling) ---
+    if (isAdmin && /send\s*(me\s*)?(a\s*)?voice|voice\s*note|voice\s*msg|speak\s*to\s*me|can\s*you\s*speak|talk\s*to\s*me/i.test(body) && !/transcri/i.test(body)) {
+      const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(() => false);
+      if (!ttsOk) {
+        response.text = '*Voice not available.*\n```\nTTS engine not installed.\nInstall with: pip install edge-tts\nThen restart the bot.\n```';
         return;
       }
-
-      // "Why slow" / speed questions — give real architecture info
-      if (/why.*(slow|delay|lag|tak\s*jawab|lambat)|so\s*slow|too\s*slow|speed|response\s*time|replies.*slow/i.test(body)) {
-        const stats = aiRouter.getStats();
-        const kimiStats = stats.kimiStats || {};
-        const cfg = require('../config');
-        response.text = `*Response Speed Analysis*\n\`\`\`\n` +
-          `Your message flow:\n` +
-          `1. WhatsApp → Bot (instant)\n` +
-          `2. Intent classification (instant)\n` +
-          `3. Kimi K2.5 API call (2-5s)\n` +
-          `4. Tool calls if needed (+2-3s each)\n` +
-          `5. Response → WhatsApp (instant)\n` +
-          `\n` +
-          `Current stats:\n` +
-          `Model: ${cfg.kimi.model}\n` +
-          `API calls: ${kimiStats.calls || 0}\n` +
-          `Tool calls: ${stats.toolCalls}\n` +
-          `Cache hits: ${stats.cacheHits}\n` +
-          `\`\`\`\n` +
-          `*Main bottleneck:* Kimi API latency (cloud). Simple greetings skip tools for faster response.`;
-        return;
-      }
-
-      // "Send voice note" = generate voice message
-      if (/send\s*(me\s*)?(a\s*)?voice|voice\s*note|voice\s*msg|speak\s*to\s*me|can\s*you\s*speak|talk\s*to\s*me/i.test(body) && !/transcri/i.test(body)) {
-        // Check if TTS is available first
-        const ttsOk = await voiceEngine.getStatus().then(s => s.tts).catch(() => false);
-        if (!ttsOk) {
-          response.text = '*Voice not available.*\n```\nTTS engine not installed.\nInstall with: pip install edge-tts\nThen restart the bot.\n```';
-          return;
+      try {
+        const voiceText = jarvisVoice.formatForVoice('At your service. All systems operational. What would you like me to report on?');
+        const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
+        const fs = require('fs');
+        if (voiceResult.filePath && fs.existsSync(voiceResult.filePath)) {
+          response.voice = voiceResult.filePath;
+        } else {
+          response.text = '*Voice generation failed — file not created.*\n```\nTry: pip install edge-tts\n```';
         }
-        try {
-          const voiceText = jarvisVoice.formatForVoice('At your service. All systems operational. What would you like me to report on?');
-          const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
-          const fs = require('fs');
-          if (voiceResult.filePath && fs.existsSync(voiceResult.filePath)) {
-            response.voice = voiceResult.filePath;
-            // Voice only — no text message needed
-          } else {
-            response.text = '*Voice generation failed — file not created.*\n```\nTry: pip install edge-tts\n```';
-          }
-        } catch (err) {
-          response.text = `*Voice Error:* \`\`\`${err.message}\n\nFix: pip install edge-tts\`\`\``;
-        }
-        return;
+      } catch (err) {
+        response.text = `*Voice Error:* \`\`\`${err.message}\n\nFix: pip install edge-tts\`\`\``;
       }
+      return;
     }
 
     // --- Booking start detection ---
@@ -241,18 +198,46 @@ class JarvisBrain {
       }
     }
 
-    // --- Intent-based quick responses ---
+    // --- Admin/Boss: AI-first with tools (agent mode) ---
+    // Admin messages always go to AI with full tool access.
+    // The AI reads the question, decides if it needs data, calls tools, then answers.
+    // No regex short-circuiting — the AI thinks first.
+    if (isAdmin) {
+      const personalContext = this._buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification);
+      const aiResult = await aiRouter.route(body, history, {
+        isAdmin,
+        systemPrompt: personalContext,
+        intent: classification.intent,
+        forceTools: true,  // Always give AI access to tools
+      });
+      response.text = aiResult.content;
+      response.tier = aiResult.tier;
+
+      // Voice notes for admin reports
+      if (body.toLowerCase().includes('report')) {
+        try {
+          const voiceText = jarvisVoice.formatForVoice(aiResult.content);
+          const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
+          response.voice = voiceResult.filePath;
+        } catch (err) {
+          console.warn('[JARVIS] Voice generation failed:', err.message);
+        }
+      }
+      return;
+    }
+
+    // --- Customer: Quick responses for common intents (speed) ---
     const quickResponse = await this._handleIntentDirect(classification, msg, response, isAdmin, existingCustomer, customerHistory, lang);
     if (quickResponse) return;
 
     // --- First-time greeting for new customers ---
-    if (!isAdmin && !existingCustomer && classification.intent === INTENTS.GREETING) {
+    if (!existingCustomer && classification.intent === INTENTS.GREETING) {
       response.text = customerFlows.newCustomerWelcome(name, lang);
       return;
     }
 
     // --- Returning customer greeting ---
-    if (!isAdmin && existingCustomer && classification.intent === INTENTS.GREETING) {
+    if (existingCustomer && classification.intent === INTENTS.GREETING) {
       response.text = customerFlows.returningCustomerGreeting(
         existingCustomer.customer_name,
         customerHistory?.activeRentals || [],
@@ -262,7 +247,7 @@ class JarvisBrain {
       return;
     }
 
-    // --- AI-powered response ---
+    // --- Customer: AI-powered response with tools ---
     const personalContext = this._buildPersonalContext(phone, name, isAdmin, existingCustomer, customerHistory, classification);
 
     const aiResult = await aiRouter.route(body, history, {
@@ -273,17 +258,6 @@ class JarvisBrain {
 
     response.text = aiResult.content;
     response.tier = aiResult.tier;
-
-    // Voice notes ONLY for admins
-    if (isAdmin && body.toLowerCase().includes('report')) {
-      try {
-        const voiceText = jarvisVoice.formatForVoice(aiResult.content);
-        const voiceResult = await voiceEngine.speak(voiceText, { language: conv.language || 'en' });
-        response.voice = voiceResult.filePath;
-      } catch (err) {
-        console.warn('[JARVIS] Voice generation failed:', err.message);
-      }
-    }
   }
 
   // --- Intent-based direct responses ---

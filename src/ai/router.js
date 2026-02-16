@@ -86,14 +86,15 @@ class AIRouter {
     const {
       forceCloud = false,
       forceLocal = false,
+      forceTools = false,
       isAdmin = false,
       systemPrompt = null,
       intent = null,
     } = options;
 
-    // Check cache first
+    // Check cache first (skip cache for admin — they expect live data)
     const cachePolicy = responseCache.shouldCache(intent);
-    if (cachePolicy.cache && !forceCloud) {
+    if (cachePolicy.cache && !forceCloud && !isAdmin) {
       const cached = responseCache.get(userMessage);
       if (cached) {
         this.stats.cacheHits++;
@@ -107,7 +108,8 @@ class AIRouter {
 
     let tier = forceCloud ? 'cloud' : forceLocal ? 'local' : this.classify(userMessage);
 
-    if (isAdmin && tier === 'local' && userMessage.length > 100) {
+    // Admin always gets cloud AI — they need quality + tools
+    if (isAdmin && tier === 'local') {
       tier = 'cloud';
     }
 
@@ -124,21 +126,13 @@ class AIRouter {
       // Cloud AI — primary
       if ((tier === 'cloud' || !this.localAvailable) && cloud) {
         this.stats.cloud++;
-        // Simple queries: skip tool calling for faster response
-        const needsTools = /available|booking|fleet|car|customer|price|report|earn|expir|overdue|how many|list|count/i.test(userMessage);
-        if (needsTools) {
-          result = await cloud.client.chatWithTools(
-            messages, TOOLS,
-            async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
-            { systemPrompt: fullSystemPrompt, maxRounds: 3 }
-          );
-        } else {
-          // No tools needed — direct chat is 2-3x faster
-          result = await cloud.client.chat(messages, {
-            systemPrompt: fullSystemPrompt,
-            maxTokens: 1024,
-          });
-        }
+        // Always give AI access to tools — let the AI decide whether to use them.
+        // The AI is smart enough to skip tools for "hello" and use them for "how many cars available?"
+        result = await cloud.client.chatWithTools(
+          messages, TOOLS,
+          async (name, args) => { this.stats.toolCalls++; return executeTool(name, args, { isAdmin }); },
+          { systemPrompt: fullSystemPrompt, maxRounds: 3 }
+        );
         result = { ...result, tier: 'cloud', provider: cloud.name };
       }
       // Ollama — local fallback
@@ -151,8 +145,8 @@ class AIRouter {
         throw new Error('No AI engines available. Set KIMI_API_KEY or GROQ_API_KEY or install Ollama.');
       }
 
-      // Cache the result
-      if (cachePolicy.cache && result.content) {
+      // Cache the result (not for admin)
+      if (cachePolicy.cache && result.content && !isAdmin) {
         responseCache.set(userMessage, result, cachePolicy.ttl);
       }
 
