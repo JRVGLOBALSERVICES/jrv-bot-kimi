@@ -220,10 +220,6 @@ class AIRouter {
    * Layers: SOUL.md base → live context → policies → memory → skills → KB
    */
   _buildSystemPrompt(context, policyContext, isAdmin, customPrompt) {
-    const cfg = require('../config');
-    const primary = providers.getProvider({ needsTools: true });
-    const engineName = primary ? `${primary.name} | Model: ${primary.id === 'groq' ? cfg.groq.model : primary.id === 'kimi' ? cfg.kimi.model : cfg.localAI.model}` : 'No engine available';
-
     const parts = [];
 
     // ─── SOUL.md injection (OpenClaw workspace context) ───
@@ -249,7 +245,11 @@ class AIRouter {
     }
 
     // ─── Engine info ───
-    parts.push(`Running on: ${engineName}`);
+    // NOTE: Do NOT inject specific model/provider names here.
+    // The actual provider used is decided at execute() time via failover,
+    // so telling JARVIS "you're running Kimi" when Groq answers causes
+    // identity confusion (JARVIS echoes the wrong label to users).
+    parts.push('Running on: JARVIS AI Engine (OpenClaw)');
     parts.push('');
 
     // ─── Rules (always injected, not from SOUL.md to keep them consistent) ───

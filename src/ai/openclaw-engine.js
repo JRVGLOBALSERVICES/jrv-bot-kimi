@@ -31,8 +31,8 @@ const localClient = require('./local-client');
 
 // ─── CONSTANTS ────────────────────────────────────────────────
 
-const REQUEST_TIMEOUT = 30000;
-const TOOL_TIMEOUT = 15000;
+const REQUEST_TIMEOUT = 45000;
+const TOOL_TIMEOUT = 45000;  // Reports query Supabase — 6 reports can take 30s+
 const MAX_TOOL_ROUNDS = 5;
 const MAX_RETRIES = 2;
 const RETRY_DELAYS = [1000, 2000, 4000];
@@ -438,12 +438,19 @@ class OpenClawEngine {
   // ─── TOOL LOOP (unified for all providers) ─────────────────
   //
   // One tool loop for Kimi AND Groq. No duplicate code.
-  // Mid-loop failure → tries different provider to finish.
+  //
+  // Key fixes (from live debugging):
+  //   - tool_call_id: generate stable IDs if provider omits them
+  //   - timeout: 45s (reports query Supabase, 6 reports can take 30s+)
+  //   - mid-loop failure: strip tool messages and retry text-only
+  //   - key rotation: _chat() already rotates keys per call
+  //   - diagnostics: log actual error, not generic message
 
   async _chatWithTools(provider, modelId, messages, tools, toolExecutor, opts = {}) {
     const { systemPrompt } = opts;
     let currentMsgs = [...messages];
     let round = 0;
+    let toolCallCounter = 0;
 
     while (round < MAX_TOOL_ROUNDS) {
       let result;
@@ -453,49 +460,72 @@ class OpenClawEngine {
           tools,
         });
       } catch (err) {
-        // Failed mid-loop — try to salvage with text-only response
+        console.error(`[OpenClaw] Tool loop round ${round} chat failed: ${err.message}`);
+
+        // Mid-loop failure — try to salvage
         if (round > 0) {
-          try { return await this._chat(provider, modelId, currentMsgs, {}); } catch {}
-          // Try OTHER providers to finish the conversation
+          // Strip tool messages and try text-only with just user messages
+          // (avoids tool_call_id mismatch when switching providers)
+          const textOnlyMsgs = currentMsgs.filter(m => m.role === 'user' || (m.role === 'assistant' && !m.tool_calls));
+
+          // Try same provider text-only
+          try { return await this._chat(provider, modelId, textOnlyMsgs, { systemPrompt }); } catch (e2) {
+            console.error(`[OpenClaw] Text-only fallback same provider failed: ${e2.message}`);
+          }
+
+          // Try OTHER providers text-only
           for (const alt of this.providers) {
             if (alt.id === provider.id) continue;
             try {
               const m = alt.models[0]?.id;
-              if (m) return await this._chat(alt, m, currentMsgs, {});
+              if (m) return await this._chat(alt, m, textOnlyMsgs, { systemPrompt });
             } catch { continue; }
           }
-          return { content: 'I ran into an issue processing that. Please try again.', error: err.message };
+
+          // Absolute last resort: return a useful error, not generic
+          console.error(`[OpenClaw] ALL tool-loop recovery failed. Original error: ${err.message}`);
+          return {
+            content: 'I had trouble processing your request — the data service timed out. Please try again in a moment, or use a specific command like /report1 instead of all reports at once.',
+            error: err.message,
+          };
         }
         throw err;
       }
 
       if (!result.toolCalls) return result;
 
-      // Execute tool calls
+      // ─── Execute tool calls ───
+      // Ensure every tool_call has a stable ID (some providers omit it)
+      const normalizedToolCalls = result.toolCalls.map(tc => ({
+        ...tc,
+        id: tc.id || `call_${++toolCallCounter}_${Date.now()}`,
+      }));
+
       currentMsgs.push({
         role: 'assistant',
         content: result.content || null,
-        tool_calls: result.toolCalls,
+        tool_calls: normalizedToolCalls,
       });
 
-      for (const tc of result.toolCalls) {
+      for (const tc of normalizedToolCalls) {
         let toolResult;
+        const name = tc.function?.name || 'unknown';
         try {
           let args = {};
           try { args = JSON.parse(tc.function?.arguments || '{}'); } catch { args = {}; }
-          const name = tc.function?.name || 'unknown';
 
           toolResult = await Promise.race([
             toolExecutor(name, args),
-            new Promise((_, rej) => setTimeout(() => rej(new Error(`Tool ${name} timed out`)), TOOL_TIMEOUT)),
+            new Promise((_, rej) => setTimeout(() => rej(new Error(`Tool ${name} timed out after ${TOOL_TIMEOUT / 1000}s`)), TOOL_TIMEOUT)),
           ]);
         } catch (err) {
+          console.error(`[OpenClaw] Tool "${name}" failed: ${err.message}`);
           toolResult = { error: err.message };
         }
 
         currentMsgs.push({
           role: 'tool',
-          tool_call_id: tc.id || `call_${Date.now()}`,
+          tool_call_id: tc.id,  // Always matches — we normalized above
           content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult || { error: 'no result' }),
         });
       }
@@ -504,7 +534,8 @@ class OpenClawEngine {
     }
 
     // Exceeded rounds — final text response
-    try { return await this._chat(provider, modelId, currentMsgs, {}); } catch {}
+    const textOnlyMsgs = currentMsgs.filter(m => m.role === 'user' || (m.role === 'assistant' && !m.tool_calls));
+    try { return await this._chat(provider, modelId, textOnlyMsgs, { systemPrompt }); } catch {}
     return { content: 'I processed your request but hit complexity limits. Please try a simpler question.' };
   }
 
