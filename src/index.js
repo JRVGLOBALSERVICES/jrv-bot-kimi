@@ -88,7 +88,7 @@ async function boot() {
     const startTime = Date.now();
 
     // ─── TYPING: Show "typing..." immediately ───
-    whatsapp.sendTyping(msg.from).catch(() => {});
+    whatsapp.sendTyping(msg.from).catch(err => console.warn('[JARVIS] Send typing indicator failed:', err.message));
 
     try {
       // ─── PROCESS: Run through JARVIS brain ───
@@ -104,7 +104,7 @@ async function boot() {
       });
 
       // ─── RESPOND: Clear typing and send ───
-      whatsapp.clearTyping(msg.from).catch(() => {});
+      whatsapp.clearTyping(msg.from).catch(err => console.warn('[JARVIS] Clear typing indicator failed:', err.message));
 
       if (response.text) {
         await msg.reply(response.text);
@@ -123,7 +123,7 @@ async function boot() {
 
     } catch (err) {
       // ─── EMERGENCY: Even if everything fails, respond ───
-      whatsapp.clearTyping(msg.from).catch(() => {});
+      whatsapp.clearTyping(msg.from).catch(err2 => console.warn('[JARVIS] Clear typing on error failed:', err2.message));
       console.error(`[JARVIS] Fatal message processing error:`, err?.message || err);
 
       const isAdmin = syncEngine.isAdmin(msg.phone);

@@ -31,8 +31,8 @@ const localClient = require('./local-client');
 
 // ─── CONSTANTS ────────────────────────────────────────────────
 
-const REQUEST_TIMEOUT = 45000;
-const TOOL_TIMEOUT = 45000;  // Reports query Supabase — 6 reports can take 30s+
+const REQUEST_TIMEOUT = 60000;  // Cloud API call (Kimi/Groq can be slow on free tier)
+const TOOL_TIMEOUT = 45000;    // Tool execution (Supabase queries, 6 parallel reports ~5s)
 const MAX_TOOL_ROUNDS = 5;
 const MAX_RETRIES = 2;
 const RETRY_DELAYS = [1000, 2000, 4000];
@@ -520,7 +520,7 @@ class OpenClawEngine {
           ]);
         } catch (err) {
           console.error(`[OpenClaw] Tool "${name}" failed: ${err.message}`);
-          toolResult = { error: err.message };
+          toolResult = `[TOOL ERROR: ${name} failed — ${err.message}. Do NOT guess or invent data. Tell the user the tool failed.]`;
         }
 
         currentMsgs.push({
